@@ -118,7 +118,7 @@ let emit_addressing addr r =
 
 (* Record live pointers at call points *)
 
-let record_frame_label live dbg =
+let record_frame_label live dbg allocs =
   let lbl = new_label() in
   let live_offset = ref [] in
   Reg.Set.iter
@@ -133,11 +133,12 @@ let record_frame_label live dbg =
     { fd_lbl = lbl;
       fd_frame_size = frame_size();
       fd_live_offset = !live_offset;
-      fd_debuginfo = dbg } :: !frame_descriptors;
+      fd_debuginfo = dbg;
+      fd_allocs = allocs } :: !frame_descriptors;
   lbl
 
-let record_frame live dbg =
-  let lbl = record_frame_label live dbg in `{emit_label lbl}:`
+let record_frame live dbg allocs =
+  let lbl = record_frame_label live dbg allocs in `{emit_label lbl}:`
 
 (* Record calls to the GC -- we've moved them out of the way *)
 
@@ -165,7 +166,7 @@ let bound_error_sites = ref ([] : bound_error_call list)
 let bound_error_label dbg =
   if !Clflags.debug || !bound_error_sites = [] then begin
     let lbl_bound_error = new_label() in
-    let lbl_frame = record_frame_label Reg.Set.empty dbg in
+    let lbl_frame = record_frame_label Reg.Set.empty dbg [] in
     bound_error_sites :=
       { bd_lbl = lbl_bound_error;
         bd_frame_lbl = lbl_frame } :: !bound_error_sites;
@@ -340,10 +341,10 @@ let emit_instr i =
         emit_load_symbol_addr i.res.(0) s
     | Lop(Icall_ind) ->
         `	blr	{emit_reg i.arg.(0)}\n`;
-        `{record_frame i.live i.dbg}\n`
+        `{record_frame i.live i.dbg []}\n`
     | Lop(Icall_imm s) ->
         `	bl	{emit_symbol s}\n`;
-        `{record_frame i.live i.dbg}\n`
+        `{record_frame i.live i.dbg []}\n`
     | Lop(Itailcall_ind) ->
         output_epilogue (fun () -> `	br	{emit_reg i.arg.(0)}\n`)
     | Lop(Itailcall_imm s) ->
@@ -356,7 +357,7 @@ let emit_instr i =
     | Lop(Iextcall(s, true)) ->
         emit_load_symbol_addr reg_x15 s;
         `	bl	{emit_symbol "caml_c_call"}\n`;
-        `{record_frame i.live i.dbg}\n`
+        `{record_frame i.live i.dbg []}\n`
     | Lop(Istackoffset n) ->
         assert (n mod 16 = 0);
         emit_stack_adjustment (-n);
@@ -409,8 +410,9 @@ let emit_instr i =
         | Word | Double | Double_u ->
             `	str	{emit_reg src}, {emit_addressing addr base}\n`
         end
-    | Lop(Ialloc n) ->
-        let lbl_frame = record_frame_label i.live i.dbg in
+    | Lop(Ialloc l) ->
+        let n = List.fold_left (fun acc (n, _) -> acc + n) 0 l in
+        let lbl_frame = record_frame_label i.live i.dbg l in
         if !fastcode_flag then begin
           let lbl_redo = new_label() in
           let lbl_call_gc = new_label() in
@@ -616,7 +618,7 @@ let emit_instr i =
     | Lraise ->
         if !Clflags.debug then begin
           `	bl	{emit_symbol "caml_raise_exn"}\n`;
-          `{record_frame Reg.Set.empty i.dbg}\n`
+          `{record_frame Reg.Set.empty i.dbg []}\n`
         end else begin
           `	mov	sp, {emit_reg reg_trap_ptr}\n`;
           `	ldr	{emit_reg reg_tmp1}, [sp, #8]\n`;

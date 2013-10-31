@@ -25,6 +25,7 @@
 #include "misc.h"
 #include "reverse.h"
 #include "stacks.h"
+#include "memprof.h"
 
 #ifdef _MSC_VER
 #include <float.h>
@@ -62,9 +63,13 @@ CAMLexport value caml_copy_double(double d)
 
 #define Setup_for_gc
 #define Restore_after_gc
+#define Setup_for_event
+#define Restore_after_event
   Alloc_small(res, Double_wosize, Double_tag);
 #undef Setup_for_gc
 #undef Restore_after_gc
+#undef Setup_for_event
+#undef Restore_after_event
   Store_double_val(res, d);
   return res;
 }

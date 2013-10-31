@@ -105,12 +105,19 @@ int caml_page_table_initialize(mlsize_t bytesize);
                                           CAMLassert ((tag_t) (tag) < 256); \
                                  CAMLassert ((wosize) <= Max_young_wosize); \
   caml_young_ptr -= Bhsize_wosize (wosize);                                 \
-  if (caml_young_ptr < caml_young_start){                                   \
-    caml_young_ptr += Bhsize_wosize (wosize);                               \
-    Setup_for_gc;                                                           \
-    caml_minor_collection ();                                               \
-    Restore_after_gc;                                                       \
-    caml_young_ptr -= Bhsize_wosize (wosize);                               \
+  if (caml_young_ptr < caml_young_limit){                                   \
+    if (caml_young_ptr < caml_young_start){                                 \
+      caml_young_ptr += Bhsize_wosize (wosize);                             \
+      Setup_for_gc;                                                         \
+      caml_minor_collection ();                                             \
+      Restore_after_gc;                                                     \
+      caml_young_ptr -= Bhsize_wosize (wosize);                             \
+    }                                                                       \
+    if(caml_young_ptr < caml_memprof_young_limit){                          \
+      Setup_for_event;                                                      \
+      caml_memprof_track_one(Val_hp(caml_young_ptr), wosize);               \
+      Restore_after_event;                                                  \
+    }                                                                       \
   }                                                                         \
   Hd_hp (caml_young_ptr) = Make_header ((wosize), (tag), Caml_black);       \
   (result) = Val_hp (caml_young_ptr);                                       \
@@ -120,6 +127,8 @@ int caml_page_table_initialize(mlsize_t bytesize);
 /* Deprecated alias for [caml_modify] */
 
 #define Modify(fp,val) caml_modify((fp), (val))
+
+extern value caml_alloc_shr_notrack (mlsize_t wosize, tag_t tag);
 
 /* </private> */
 

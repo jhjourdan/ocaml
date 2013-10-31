@@ -216,7 +216,7 @@ let emit_set_comp cmp res =
 
 (* Record live pointers at call points *)
 
-let record_frame live dbg =
+let record_frame live dbg allocs =
   let lbl = new_label() in
   let live_offset = ref [] in
   Reg.Set.iter
@@ -231,7 +231,8 @@ let record_frame live dbg =
     { fd_lbl = lbl;
       fd_frame_size = frame_size();
       fd_live_offset = !live_offset;
-      fd_debuginfo = dbg } :: !frame_descriptors;
+      fd_debuginfo = dbg;
+      fd_allocs = allocs } :: !frame_descriptors;
   `{emit_label lbl}:\n`
 
 (* Record floating-point and large integer literals *)
@@ -339,8 +340,8 @@ let instr_size = function
       then load_store_size addr + 1
       else load_store_size addr
   | Lop(Istore(chunk, addr)) -> load_store_size addr
-  | Lop(Ialloc n) -> 4
-  | Lop(Ispecific(Ialloc_far n)) -> 5
+  | Lop(Ialloc _) -> 4
+  | Lop(Ispecific(Ialloc_far _)) -> 5
   | Lop(Iintop Imod) -> 3
   | Lop(Iintop(Icomp cmp)) -> 4
   | Lop(Iintop op) -> 1
@@ -420,8 +421,8 @@ let fixup_branches codesize map code =
         instr.desc <- cont.desc;
         instr.next <- cont.next;
         fixup true pc instr
-    | Lop(Ialloc n) when codesize - pc >= max_branch_offset ->
-        instr.desc <- Lop(Ispecific(Ialloc_far n));
+    | Lop(Ialloc l) when codesize - pc >= max_branch_offset ->
+        instr.desc <- Lop(Ispecific(Ialloc_far l));
         fixup true (pc + 4) instr.next
     | op ->
         fixup did_fix (pc + instr_size op) instr.next
@@ -484,10 +485,10 @@ let rec emit_instr i dslot =
     | Lop(Icall_ind) ->
         `	mtctr	{emit_reg i.arg.(0)}\n`;
         `	bctrl\n`;
-        record_frame i.live i.dbg
+        record_frame i.live i.dbg []
     | Lop(Icall_imm s) ->
         `	bl	{emit_symbol s}\n`;
-        record_frame i.live i.dbg
+        record_frame i.live i.dbg []
     | Lop(Itailcall_ind) ->
         let n = frame_size() in
         `	mtctr	{emit_reg i.arg.(0)}\n`;
@@ -526,7 +527,7 @@ let rec emit_instr i dslot =
             `	addi	{emit_gpr 11}, {emit_gpr 11}, {emit_lower emit_symbol s}\n`
           end;
           `	bl	{emit_symbol "caml_c_call"}\n`;
-          record_frame i.live i.dbg
+          record_frame i.live i.dbg []
         end else begin
           if pic_externals then begin
             external_functions := StringSet.add s !external_functions;
@@ -565,21 +566,23 @@ let rec emit_instr i dslot =
           | Single -> "stfs"
           | Double | Double_u -> "stfd" in
         emit_load_store storeinstr addr i.arg 1 i.arg.(0)
-    | Lop(Ialloc n) ->
+    | Lop(Ialloc l) ->
+        let n = List.fold_left (fun acc (n, _) -> acc + n) 0 l in
         if !call_gc_label = 0 then call_gc_label := new_label();
         `	addi    {emit_gpr 31}, {emit_gpr 31}, {emit_int(-n)}\n`;
         `	{emit_string cmplg}	{emit_gpr 31}, {emit_gpr 30}\n`;
         `	addi	{emit_reg i.res.(0)}, {emit_gpr 31}, {emit_int size_addr}\n`;
         `	bltl	{emit_label !call_gc_label}\n`;
-        record_frame i.live Debuginfo.none
-    | Lop(Ispecific(Ialloc_far n)) ->
+        record_frame i.live Debuginfo.none l
+    | Lop(Ispecific(Ialloc_far l)) ->
+        let n = List.fold_left (fun acc (n, _) -> acc + n) 0 l in
         if !call_gc_label = 0 then call_gc_label := new_label();
         let lbl = new_label() in
         `	addi    {emit_gpr 31}, {emit_gpr 31}, {emit_int(-n)}\n`;
         `	{emit_string cmplg}	{emit_gpr 31}, {emit_gpr 30}\n`;
         `	bge	{emit_label lbl}\n`;
         `	bl	{emit_label !call_gc_label}\n`;
-        record_frame i.live Debuginfo.none;
+        record_frame i.live Debuginfo.none l;
         `{emit_label lbl}:	addi	{emit_reg i.res.(0)}, {emit_gpr 31}, {emit_int size_addr}\n`
     | Lop(Iintop Isub) ->               (* subfc has swapped arguments *)
         `	subfc	{emit_reg i.res.(0)}, {emit_reg i.arg.(1)}, {emit_reg i.arg.(0)}\n`
@@ -598,7 +601,7 @@ let rec emit_instr i dslot =
         end
     | Lop(Iintop Icheckbound) ->
         if !Clflags.debug && supports_backtraces then
-          record_frame Reg.Set.empty i.dbg;
+          record_frame Reg.Set.empty i.dbg [];
         `	{emit_string tglle}   {emit_reg i.arg.(0)}, {emit_reg i.arg.(1)}\n`
     | Lop(Iintop op) ->
         let instr = name_for_intop op in
@@ -626,7 +629,7 @@ let rec emit_instr i dslot =
         end
     | Lop(Iintop_imm(Icheckbound, n)) ->
         if !Clflags.debug && supports_backtraces then
-          record_frame Reg.Set.empty i.dbg;
+          record_frame Reg.Set.empty i.dbg [];
         `	{emit_string tglle}i   {emit_reg i.arg.(0)}, {emit_int n}\n`
     | Lop(Iintop_imm(op, n)) ->
         let instr = name_for_intop_imm op in
@@ -770,7 +773,7 @@ let rec emit_instr i dslot =
     | Lraise ->
         if !Clflags.debug && supports_backtraces then begin
           `	bl	{emit_symbol "caml_raise_exn"}\n`;
-          record_frame Reg.Set.empty i.dbg
+          record_frame Reg.Set.empty i.dbg []
         end else begin
           `	{emit_string lg}	{emit_gpr 0}, 0({emit_gpr 29})\n`;
           `	mr	{emit_gpr 1}, {emit_gpr 29}\n`;

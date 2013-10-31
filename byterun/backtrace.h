@@ -15,6 +15,9 @@
 #define CAML_BACKTRACE_H
 
 #include "mlvalues.h"
+#ifdef NATIVE_CODE
+#include "../asmrun/stack.h"
+#endif
 
 CAMLextern int caml_backtrace_active;
 CAMLextern int caml_backtrace_pos;
@@ -27,5 +30,11 @@ CAMLprim value caml_record_backtrace(value vflag);
 extern void caml_stash_backtrace(value exn, code_t pc, value * sp);
 #endif
 CAMLextern void caml_print_exception_backtrace(void);
+
+#ifdef NATIVE_CODE
+extern frame_descr * caml_next_frame_descriptor(uintnat * pc, char ** sp);
+#else
+extern code_t caml_next_frame_pointer(value ** sp, value ** trapsp);
+#endif
 
 #endif /* CAML_BACKTRACE_H */

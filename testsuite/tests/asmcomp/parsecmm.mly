@@ -244,7 +244,7 @@ chunk:
 ;
 unaryop:
     LOAD chunk                  { Cload $2 }
-  | ALLOC                       { Calloc }
+  | ALLOC                       { Calloc Debuginfo.none }
   | FLOATOFINT                  { Cfloatofint }
   | INTOFFLOAT                  { Cintoffloat }
   | RAISE                       { Craise Debuginfo.none }

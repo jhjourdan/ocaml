@@ -34,7 +34,8 @@ type frame_descr =
   { fd_lbl: int;                        (* Return address *)
     fd_frame_size: int;                 (* Size of stack frame *)
     fd_live_offset: int list;           (* Offsets/regs of live addresses *)
-    fd_debuginfo: Debuginfo.t }         (* Location, if any *)
+    fd_debuginfo: Debuginfo.t;          (* Location, if any *)
+    fd_allocs: (int * Debuginfo.t) list }
 
 val frame_descriptors : frame_descr list ref
 

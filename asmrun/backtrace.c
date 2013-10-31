@@ -214,7 +214,7 @@ static void extract_location_info(frame_descr * d,
   /* If no debugging information available, print nothing.
      When everything is compiled with -g, this corresponds to
      compiler-inserted re-raise operations. */
-  if ((d->frame_size & 1) == 0) {
+  if ((d->frame_size & 3) != 1) {
     li->loc_valid = 0;
     li->loc_is_raise = 1;
     return;

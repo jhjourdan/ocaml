@@ -25,6 +25,7 @@
 #include "roots.h"
 #include "signals.h"
 #include "weak.h"
+#include "memprof.h"
 
 asize_t caml_minor_heap_size;
 static void *caml_young_base = NULL;
@@ -100,6 +101,8 @@ void caml_set_minor_heap_size (asize_t size)
 
   reset_table (&caml_ref_table);
   reset_table (&caml_weak_ref_table);
+
+  caml_memprof_reinit();
 }
 
 static value oldify_todo_list = 0;
@@ -126,7 +129,7 @@ void caml_oldify_one (value v, value *p)
         value field0;
 
         sz = Wosize_hd (hd);
-        result = caml_alloc_shr (sz, tag);
+        result = caml_alloc_shr_notrack (sz, tag);
         *p = result;
         field0 = Field (v, 0);
         Hd_val (v) = 0;            /* Set forward flag */
@@ -143,7 +146,7 @@ void caml_oldify_one (value v, value *p)
         }
       }else if (tag >= No_scan_tag){
         sz = Wosize_hd (hd);
-        result = caml_alloc_shr (sz, tag);
+        result = caml_alloc_shr_notrack (sz, tag);
         for (i = 0; i < sz; i++) Field (result, i) = Field (v, i);
         Hd_val (v) = 0;            /* Set forward flag */
         Field (v, 0) = result;     /*  and forward pointer. */
@@ -172,7 +175,7 @@ void caml_oldify_one (value v, value *p)
         if (!vv || ft == Forward_tag || ft == Lazy_tag || ft == Double_tag){
           /* Do not short-circuit the pointer.  Copy as a normal block. */
           Assert (Wosize_hd (hd) == 1);
-          result = caml_alloc_shr (1, Forward_tag);
+          result = caml_alloc_shr_notrack (1, Forward_tag);
           *p = result;
           Hd_val (v) = 0;             /* Set (GC) forward flag */
           Field (v, 0) = result;      /*  and forward pointer. */
@@ -253,6 +256,7 @@ void caml_empty_minor_heap (void)
     caml_gc_message (0x02, ">", 0);
     caml_in_minor_collection = 0;
   }
+  caml_memprof_minor_gc();
   caml_final_empty_young ();
 #ifdef DEBUG
   {

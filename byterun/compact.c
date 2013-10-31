@@ -23,6 +23,7 @@
 #include "mlvalues.h"
 #include "roots.h"
 #include "weak.h"
+#include "memprof.h"
 
 extern uintnat caml_percent_free;                   /* major_gc.c */
 extern void caml_shrink_heap (char *);              /* memory.c */
@@ -186,6 +187,7 @@ static void do_compaction (void)
        the headers (see above). */
     caml_do_roots (invert_root);
     caml_final_do_weak_roots (invert_root);
+    caml_memprof_do_weak_roots (invert_root);
 
     ch = caml_heap_start;
     while (ch != NULL){

@@ -123,7 +123,12 @@ let operation op arg ppf res =
        (Arch.print_addressing reg addr)
        (Array.sub arg 1 (Array.length arg - 1))
        reg arg.(0)
-  | Ialloc n -> fprintf ppf "alloc %i" n
+  | Ialloc l ->
+      fprintf ppf "alloc ";
+      List.iter (fun (n, dbg) ->
+	if Debuginfo.is_none dbg then fprintf ppf "%d " n
+	else fprintf ppf "%d[%s] " n (Debuginfo.to_string dbg))
+	l
   | Iintop(op) -> fprintf ppf "%a%s%a" reg arg.(0) (intop op) reg arg.(1)
   | Iintop_imm(op, n) -> fprintf ppf "%a%s%i" reg arg.(0) (intop op) n
   | Inegf -> fprintf ppf "-f %a" reg arg.(0)

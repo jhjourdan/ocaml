@@ -29,6 +29,7 @@
 #include "prims.h"
 #include "signals.h"
 #include "stacks.h"
+#include "memprof.h"
 
 /* Registers for the abstract machine:
         pc         the code pointer

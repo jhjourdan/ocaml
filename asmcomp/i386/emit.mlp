@@ -176,7 +176,7 @@ let emit_addressing addr r n =
 
 (* Record live pointers at call points *)
 
-let record_frame_label live dbg =
+let record_frame_label live dbg allocs =
   let lbl = new_label() in
   let live_offset = ref [] in
   Reg.Set.iter
@@ -191,11 +191,12 @@ let record_frame_label live dbg =
     { fd_lbl = lbl;
       fd_frame_size = frame_size();
       fd_live_offset = !live_offset;
-      fd_debuginfo = dbg } :: !frame_descriptors;
+      fd_debuginfo = dbg;
+      fd_allocs = allocs } :: !frame_descriptors;
   lbl
 
-let record_frame live dbg =
-  let lbl = record_frame_label live dbg in `{emit_label lbl}:\n`
+let record_frame live dbg allocs =
+  let lbl = record_frame_label live dbg allocs in `{emit_label lbl}:\n`
 
 (* Record calls to the GC -- we've moved them out of the way *)
 
@@ -224,7 +225,7 @@ let bound_error_call = ref 0
 let bound_error_label dbg =
   if !Clflags.debug then begin
     let lbl_bound_error = new_label() in
-    let lbl_frame = record_frame_label Reg.Set.empty dbg in
+    let lbl_frame = record_frame_label Reg.Set.empty dbg [] in
     bound_error_sites :=
      { bd_lbl = lbl_bound_error; bd_frame = lbl_frame } :: !bound_error_sites;
    lbl_bound_error
@@ -483,10 +484,10 @@ let emit_instr fallthrough i =
         `	movl	${emit_symbol s}, {emit_reg i.res.(0)}\n`
     | Lop(Icall_ind) ->
         `	call	*{emit_reg i.arg.(0)}\n`;
-        record_frame i.live i.dbg
+        record_frame i.live i.dbg []
     | Lop(Icall_imm s) ->
         `	call	{emit_symbol s}\n`;
-        record_frame i.live i.dbg
+        record_frame i.live i.dbg []
     | Lop(Itailcall_ind) ->
         output_epilogue begin fun () ->
         `	jmp	*{emit_reg i.arg.(0)}\n`
@@ -509,7 +510,7 @@ let emit_instr fallthrough i =
             `	movl	L{emit_symbol s}$non_lazy_ptr, %eax\n`
           end;
           `	call	{emit_symbol "caml_c_call"}\n`;
-          record_frame i.live i.dbg
+          record_frame i.live i.dbg []
         end else begin
           if not macosx then
             `	call	{emit_symbol s}\n`
@@ -566,7 +567,8 @@ let emit_instr fallthrough i =
                 `	fstpl	{emit_addressing addr i.arg 1}\n`
               end
         end
-    | Lop(Ialloc n) ->
+    | Lop(Ialloc l) ->
+        let n = List.fold_left (fun acc (n, _) -> acc + n) 0 l in
         if !fastcode_flag then begin
           let lbl_redo = new_label() in
           `{emit_label lbl_redo}:	movl	{emit_symbol "caml_young_ptr"}, %eax\n`;
@@ -574,7 +576,7 @@ let emit_instr fallthrough i =
           `	movl	%eax, {emit_symbol "caml_young_ptr"}\n`;
           `	cmpl	{emit_symbol "caml_young_limit"}, %eax\n`;
           let lbl_call_gc = new_label() in
-          let lbl_frame = record_frame_label i.live Debuginfo.none in
+          let lbl_frame = record_frame_label i.live Debuginfo.none l in
           `	jb	{emit_label lbl_call_gc}\n`;
           `	leal	4(%eax), {emit_reg i.res.(0)}\n`;
           call_gc_sites :=
@@ -589,7 +591,7 @@ let emit_instr fallthrough i =
           | _  -> `	movl	${emit_int n}, %eax\n`;
                   `	call	{emit_symbol "caml_allocN"}\n`
           end;
-          `{record_frame i.live Debuginfo.none}	leal	4(%eax), {emit_reg i.res.(0)}\n`
+          `{record_frame i.live Debuginfo.none l}	leal	4(%eax), {emit_reg i.res.(0)}\n`
         end
     | Lop(Iintop(Icomp cmp)) ->
         `	cmpl	{emit_reg i.arg.(1)}, {emit_reg i.arg.(0)}\n`;
@@ -833,7 +835,7 @@ let emit_instr fallthrough i =
     | Lraise ->
         if !Clflags.debug then begin
           `	call    {emit_symbol "caml_raise_exn"}\n`;
-          record_frame Reg.Set.empty i.dbg
+          record_frame Reg.Set.empty i.dbg []
         end else begin
           `	movl	{emit_symbol "caml_exception_pointer"}, %esp\n`;
           `	popl    {emit_symbol "caml_exception_pointer"}\n`;

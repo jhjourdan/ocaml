@@ -393,7 +393,8 @@ let rec emit_instr i dslot =
               | _ -> "st" in
             emit_store storeinstr addr i.arg src
         end
-    | Lop(Ialloc n) ->
+    | Lop(Ialloc l) ->
+        let n = List.fold_left (fun acc (n, _) -> acc + n) 0 l in
         if !fastcode_flag then begin
           let lbl_cont = new_label() in
           if solaris then begin

@@ -24,6 +24,7 @@
 #include "misc.h"
 #include "mlvalues.h"
 #include "signals.h"
+#include "memprof.h"
 
 extern uintnat caml_percent_free;                   /* major_gc.c */
 
@@ -401,7 +402,7 @@ color_t caml_allocation_color (void *hp)
   }
 }
 
-CAMLexport value caml_alloc_shr (mlsize_t wosize, tag_t tag)
+value caml_alloc_shr_notrack (mlsize_t wosize, tag_t tag)
 {
   char *hp, *new_block;
 
@@ -445,6 +446,12 @@ CAMLexport value caml_alloc_shr (mlsize_t wosize, tag_t tag)
   }
 #endif
   return Val_hp (hp);
+}
+
+CAMLexport value caml_alloc_shr (mlsize_t wosize, tag_t tag) {
+  value v = caml_alloc_shr_notrack(wosize, tag);
+  caml_memprof_track_one(v, wosize);
+  return v;
 }
 
 /* Dependent memory is all memory blocks allocated out of the heap

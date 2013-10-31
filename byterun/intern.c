@@ -29,6 +29,7 @@
 #include "mlvalues.h"
 #include "misc.h"
 #include "reverse.h"
+#include "memprof.h"
 
 static unsigned char * intern_src;
 /* Reading pointer in block holding input data. */
@@ -524,10 +525,12 @@ static void intern_alloc(mlsize_t whsize, mlsize_t num_objects)
     /* this is a specialised version of caml_alloc from alloc.c */
     if (wosize == 0){
       intern_block = Atom (String_tag);
-    }else if (wosize <= Max_young_wosize){
-      intern_block = caml_alloc_small (wosize, String_tag);
+    /* TODO : find an easy way to alloc in the minor heap here. */
+    /* The problem is that we do not memprof to sample it. */
+    /* }else if (wosize <= Max_young_wosize){ */
+    /*   intern_block = caml_alloc_small (wosize, String_tag); */
     }else{
-      intern_block = caml_alloc_shr (wosize, String_tag);
+      intern_block = caml_alloc_shr_notrack (wosize, String_tag);
       /* do not do the urgent_gc check here because it might darken
          intern_block into gray and break the Assert 3 lines down */
     }
@@ -562,6 +565,23 @@ static void intern_add_to_heap(mlsize_t whsize)
       Wsize_bsize ((char *) intern_dest - intern_extra_block);
     caml_add_to_heap(intern_extra_block);
   }
+}
+
+static void intern_memprof_track(void) {
+  char* block;
+  if(intern_extra_block != NULL)
+    block = intern_extra_block;
+  else if(intern_block != 0)
+    block = Hp_val(intern_block);
+  else
+    return;
+
+  while((header_t*)block < intern_dest) {
+    caml_memprof_track_one(Val_hp(block), Wosize_hp(block));
+    block += Bhsize_hp(block);
+  }
+
+  Assert(block == intern_dest);
 }
 
 value caml_input_val(struct channel *chan)
@@ -604,6 +624,9 @@ value caml_input_val(struct channel *chan)
   /* Free everything */
   caml_stat_free(intern_input);
   if (intern_obj_table != NULL) caml_stat_free(intern_obj_table);
+  /* Memprof tracking has to be done here, because it can potentially
+     trigger the gc. */
+  intern_memprof_track();
   return caml_check_urgent_gc(res);
 }
 
@@ -643,6 +666,9 @@ CAMLexport value caml_input_val_from_string(value str, intnat ofs)
   intern_add_to_heap(whsize);
   /* Free everything */
   if (intern_obj_table != NULL) caml_stat_free(intern_obj_table);
+  /* Memprof tracking has to be done here, because it can potentially
+     trigger the gc. */
+  intern_memprof_track();
   CAMLreturn (caml_check_urgent_gc(obj));
 }
 
@@ -671,6 +697,9 @@ static value input_val_from_block(void)
   intern_add_to_heap(whsize);
   /* Free internal data structures */
   if (intern_obj_table != NULL) caml_stat_free(intern_obj_table);
+  /* Memprof tracking has to be done here, because it can potentially
+     trigger the gc. */
+  intern_memprof_track();
   return caml_check_urgent_gc(obj);
 }
 

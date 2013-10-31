@@ -19,6 +19,7 @@
 #include "memory.h"
 #include "misc.h"
 #include "mlvalues.h"
+#include "memprof.h"
 
 CAMLexport mlsize_t caml_array_length(value array)
 {
@@ -51,9 +52,13 @@ CAMLprim value caml_array_get_float(value array, value index)
   d = Double_field(array, idx);
 #define Setup_for_gc
 #define Restore_after_gc
+#define Setup_for_event
+#define Restore_after_event
   Alloc_small(res, Double_wosize, Double_tag);
 #undef Setup_for_gc
 #undef Restore_after_gc
+#undef Setup_for_event
+#undef Restore_after_event
   Store_double_val(res, d);
   return res;
 }
@@ -99,9 +104,13 @@ CAMLprim value caml_array_unsafe_get_float(value array, value index)
   d = Double_field(array, Long_val(index));
 #define Setup_for_gc
 #define Restore_after_gc
+#define Setup_for_event
+#define Restore_after_event
   Alloc_small(res, Double_wosize, Double_tag);
 #undef Setup_for_gc
 #undef Restore_after_gc
+#undef Setup_for_event
+#undef Restore_after_event
   Store_double_val(res, d);
   return res;
 }

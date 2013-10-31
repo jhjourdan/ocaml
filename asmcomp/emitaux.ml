@@ -115,7 +115,8 @@ type frame_descr =
   { fd_lbl: int;                        (* Return address *)
     fd_frame_size: int;                 (* Size of stack frame *)
     fd_live_offset: int list;           (* Offsets/regs of live addresses *)
-    fd_debuginfo: Debuginfo.t }         (* Location, if any *)
+    fd_debuginfo: Debuginfo.t;          (* Location, if any *)
+    fd_allocs: (int * Debuginfo.t) list }
 
 let frame_descriptors = ref([] : frame_descr list)
 
@@ -138,30 +139,44 @@ let emit_frames a =
       let lbl = Linearize.new_label () in
       Hashtbl.add filenames name lbl;
       lbl in
+  let emit_debug_info_words a d =
+    let line = min 0xFFFFF d.dinfo_line
+    and char_start = min 0xFF d.dinfo_char_start
+    and char_end = min 0x3FF d.dinfo_char_end
+    and kind = match d.dinfo_kind with Dinfo_call -> 0 | Dinfo_raise -> 1 in
+    let info =
+      Int64.add (Int64.shift_left (Int64.of_int line) 44) (
+      Int64.add (Int64.shift_left (Int64.of_int char_start) 36) (
+      Int64.add (Int64.shift_left (Int64.of_int char_end) 26)
+        (Int64.of_int kind))) in
+    a.efa_label_rel
+      (label_filename d.dinfo_file)
+      (Int64.to_int32 info);
+    a.efa_32 (Int64.to_int32 (Int64.shift_right info 32))
+  in
   let emit_frame fd =
     a.efa_label fd.fd_lbl;
-    a.efa_16 (if Debuginfo.is_none fd.fd_debuginfo
-              then fd.fd_frame_size
-              else fd.fd_frame_size + 1);
+    let sz_word =
+      match Debuginfo.is_none fd.fd_debuginfo, fd.fd_allocs = [] with
+      | true, true -> fd.fd_frame_size
+      | false, true -> fd.fd_frame_size + 1
+      | true, false -> fd.fd_frame_size + 2
+      | false, false -> assert false
+    in
+    a.efa_16 sz_word;
     a.efa_16 (List.length fd.fd_live_offset);
     List.iter a.efa_16 fd.fd_live_offset;
     a.efa_align Arch.size_addr;
-    if not (Debuginfo.is_none fd.fd_debuginfo) then begin
-      let d = fd.fd_debuginfo in
-      let line = min 0xFFFFF d.dinfo_line
-      and char_start = min 0xFF d.dinfo_char_start
-      and char_end = min 0x3FF d.dinfo_char_end
-      and kind = match d.dinfo_kind with Dinfo_call -> 0 | Dinfo_raise -> 1 in
-      let info =
-        Int64.add (Int64.shift_left (Int64.of_int line) 44) (
-        Int64.add (Int64.shift_left (Int64.of_int char_start) 36) (
-        Int64.add (Int64.shift_left (Int64.of_int char_end) 26)
-                  (Int64.of_int kind))) in
-      a.efa_label_rel
-        (label_filename d.dinfo_file)
-        (Int64.to_int32 info);
-      a.efa_32 (Int64.to_int32 (Int64.shift_right info 32))
-    end in
+    if not (Debuginfo.is_none fd.fd_debuginfo) then
+      emit_debug_info_words a fd.fd_debuginfo;
+    if fd.fd_allocs <> [] then begin
+      a.efa_word (List.length fd.fd_allocs);
+      List.iter (fun (n, dbg) ->
+        a.efa_word (n / Arch.size_addr);
+        if Debuginfo.is_none dbg then (a.efa_32 0l; a.efa_32 0l)
+        else emit_debug_info_words a dbg) fd.fd_allocs
+    end
+  in
   let emit_filename name lbl =
     a.efa_def_label lbl;
     a.efa_string name;

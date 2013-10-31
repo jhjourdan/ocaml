@@ -23,9 +23,12 @@
 #include "memory.h"
 #include "mlvalues.h"
 #include "stacks.h"
+#include "memprof.h"
 
 #define Setup_for_gc
 #define Restore_after_gc
+#define Setup_for_event
+#define Restore_after_event
 
 CAMLexport value caml_alloc (mlsize_t wosize, tag_t tag)
 {

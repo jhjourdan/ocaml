@@ -54,7 +54,7 @@ let operation = function
       Printf.sprintf "extcall \"%s\"%s" lbl (Debuginfo.to_string d)
   | Cload Word -> "load"
   | Cload c -> Printf.sprintf "load %s" (chunk c)
-  | Calloc -> "alloc"
+  | Calloc d -> "alloc" ^ Debuginfo.to_string d
   | Cstore Word -> "store"
   | Cstore c -> Printf.sprintf "store %s" (chunk c)
   | Caddi -> "+"

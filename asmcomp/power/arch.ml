@@ -23,7 +23,8 @@ let command_line_options = []
 type specific_operation =
     Imultaddf                           (* multiply and add *)
   | Imultsubf                           (* multiply and subtract *)
-  | Ialloc_far of int                   (* allocation in large functions *)
+  | Ialloc_far of (int * Debuginfo.t) list
+                                        (* allocation in large functions *)
 
 (* Addressing modes *)
 
