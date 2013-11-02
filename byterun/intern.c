@@ -526,7 +526,7 @@ static void intern_alloc(mlsize_t whsize, mlsize_t num_objects)
     if (wosize == 0){
       intern_block = Atom (String_tag);
     /* TODO : find an easy way to alloc in the minor heap here. */
-    /* The problem is that we do not memprof to sample it. */
+    /* The problem is that we do not want memprof to sample it. */
     /* }else if (wosize <= Max_young_wosize){ */
     /*   intern_block = caml_alloc_small (wosize, String_tag); */
     }else{
@@ -567,21 +567,20 @@ static void intern_add_to_heap(mlsize_t whsize)
   }
 }
 
-static void intern_memprof_track(void) {
+static value intern_memprof_track(value res) {
+  CAMLparam1(res);
+
   char* block;
   if(intern_extra_block != NULL)
     block = intern_extra_block;
   else if(intern_block != 0)
     block = Hp_val(intern_block);
   else
-    return;
+    CAMLreturn(res);
 
-  while((header_t*)block < intern_dest) {
-    caml_memprof_track_one(Val_hp(block), Wosize_hp(block));
-    block += Bhsize_hp(block);
-  }
+  caml_memprof_track_interned((header_t*)block, intern_dest);
 
-  Assert(block == intern_dest);
+  CAMLreturn(res);
 }
 
 value caml_input_val(struct channel *chan)
@@ -626,7 +625,7 @@ value caml_input_val(struct channel *chan)
   if (intern_obj_table != NULL) caml_stat_free(intern_obj_table);
   /* Memprof tracking has to be done here, because it can potentially
      trigger the gc. */
-  intern_memprof_track();
+  res = intern_memprof_track(res);
   return caml_check_urgent_gc(res);
 }
 
@@ -668,7 +667,7 @@ CAMLexport value caml_input_val_from_string(value str, intnat ofs)
   if (intern_obj_table != NULL) caml_stat_free(intern_obj_table);
   /* Memprof tracking has to be done here, because it can potentially
      trigger the gc. */
-  intern_memprof_track();
+  obj = intern_memprof_track(obj);
   CAMLreturn (caml_check_urgent_gc(obj));
 }
 
@@ -699,7 +698,7 @@ static value input_val_from_block(void)
   if (intern_obj_table != NULL) caml_stat_free(intern_obj_table);
   /* Memprof tracking has to be done here, because it can potentially
      trigger the gc. */
-  intern_memprof_track();
+  obj = intern_memprof_track(obj);
   return caml_check_urgent_gc(obj);
 }
 

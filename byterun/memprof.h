@@ -23,14 +23,14 @@ extern void caml_memprof_reinit(void);
 
 extern char* caml_memprof_young_limit;
 
-extern void caml_memprof_track_one(value block, uintnat wosize);
+extern value caml_memprof_track_alloc_shr(value block);
+extern void caml_memprof_track_young(uintnat wosize);
+extern void caml_memprof_track_interned(header_t* block, header_t* blockend);
+
 
 #ifdef NATIVE_CODE
-extern double caml_memprof_call_gc_begin_hook(void);
-extern void caml_memprof_call_gc_end_hook(double);
+extern double caml_memprof_call_gc_begin(void);
+extern void caml_memprof_call_gc_end(double);
 #endif
-
-extern double caml_memprof_get_lambda(void);
-extern void caml_memprof_set_lambda(double);
 
 #endif /* CAML_MEMPROF_H */

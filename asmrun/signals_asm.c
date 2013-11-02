@@ -68,7 +68,7 @@ void caml_garbage_collection(void)
 {
   caml_young_limit = caml_young_start;
 
-  double rest = caml_memprof_call_gc_begin_hook();
+  double rest = caml_memprof_call_gc_begin();
 
   if (caml_young_ptr < caml_young_start || caml_force_major_slice) {
     caml_minor_collection();
@@ -76,7 +76,7 @@ void caml_garbage_collection(void)
 
   caml_process_pending_signals();
 
-  caml_memprof_call_gc_end_hook(rest);
+  caml_memprof_call_gc_end(rest);
 }
 
 DECLARE_SIGNAL_HANDLER(handle_signal)

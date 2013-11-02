@@ -115,7 +115,7 @@ int caml_page_table_initialize(mlsize_t bytesize);
     }                                                                       \
     if(caml_young_ptr < caml_memprof_young_limit){                          \
       Setup_for_event;                                                      \
-      caml_memprof_track_one(Val_hp(caml_young_ptr), wosize);               \
+      caml_memprof_track_young(wosize);                                     \
       Restore_after_event;                                                  \
     }                                                                       \
   }                                                                         \

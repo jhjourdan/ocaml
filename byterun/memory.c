@@ -450,7 +450,7 @@ value caml_alloc_shr_notrack (mlsize_t wosize, tag_t tag)
 
 CAMLexport value caml_alloc_shr (mlsize_t wosize, tag_t tag) {
   value v = caml_alloc_shr_notrack(wosize, tag);
-  caml_memprof_track_one(v, wosize);
+  caml_memprof_track_alloc_shr(v);
   return v;
 }
 
