@@ -13,7 +13,7 @@ static uint32 mt_index;
 
 /* [lambda] is the mean number of samples for each allocated word (including
    block headers. */
-static double lambda = 0.01;
+static double lambda = 0.;
 
 static double next_sample_young;
 char* caml_memprof_young_limit;
