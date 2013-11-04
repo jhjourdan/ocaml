@@ -16,7 +16,7 @@ struct caml_memprof_tracked_block {
 extern struct caml_memprof_tracked_block* caml_memprof_tracked_blocks;
 extern uintnat caml_memprof_tracked_blocks_end;
 
-extern void caml_memprof_minor_gc(void);
+extern void caml_memprof_minor_gc(char* old_young_ptr);
 extern void caml_memprof_major_gc(void);
 extern void caml_memprof_do_weak_roots(scanning_action f);
 extern void caml_memprof_reinit(void);

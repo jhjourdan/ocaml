@@ -229,6 +229,7 @@ void caml_oldify_mopup (void)
 void caml_empty_minor_heap (void)
 {
   value **r;
+  char* old_young_ptr = caml_young_ptr;
 
   if (caml_young_ptr != caml_young_end){
     caml_in_minor_collection = 1;
@@ -256,7 +257,7 @@ void caml_empty_minor_heap (void)
     caml_gc_message (0x02, ">", 0);
     caml_in_minor_collection = 0;
   }
-  caml_memprof_minor_gc();
+  caml_memprof_minor_gc(old_young_ptr);
   caml_final_empty_young ();
 #ifdef DEBUG
   {
