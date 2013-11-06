@@ -75,10 +75,14 @@ let int_const n =
   else Cconst_natint
           (Nativeint.add (Nativeint.shift_left (Nativeint.of_int n) 1) 1n)
 
-let add_const c n =
+let rec add_const c n =
   if n = 0 then c
   else match c with
   | Cconst_int x when no_overflow_add x n -> Cconst_int (x + n)
+  | Cop(Csubi, [Cconst_int x; c]) when no_overflow_add n x ->
+      Cop(Csubi, [Cconst_int (n + x); c])
+  | Cop(Csubi, [c; Cconst_int x]) when no_overflow_sub n x ->
+      add_const c (n - x)
   | c -> Cop(Caddi, [c; Cconst_int n])
 
 let incr_int = function
@@ -121,11 +125,16 @@ let sub_int c1 c2 =
 
 let mul_int c1 c2 =
   match (c1, c2) with
-    (Cconst_int 0, _) -> c1
-  | (Cconst_int 1, _) -> c2
-  | (_, Cconst_int 0) -> c2
-  | (_, Cconst_int 1) -> c1
-  | (_, _) -> Cop(Cmuli, [c1; c2])
+    (c, Cconst_int 0) | (Cconst_int 0, c) ->
+      Cconst_int 0
+  | (c, Cconst_int 1) | (Cconst_int 1, c) ->
+      c
+  | (c, Cconst_int(-1)) | (Cconst_int(-1), c) ->
+      sub_int (Cconst_int 0) c
+  | (c, Cconst_int n) | (Cconst_int n, c) when n = 1 lsl Misc.log2 n->
+      Cop(Clsl, [c; Cconst_int(Misc.log2 n)])
+  | (c1, c2) ->
+      Cop(Cmuli, [c1; c2])
 
 let tag_int = function
     Cconst_int n -> int_const n
@@ -1423,7 +1432,7 @@ and transl_prim_2 p arg1 arg2 dbg =
   | Psubint ->
       incr_int(sub_int (transl arg1) (transl arg2))
   | Pmulint ->
-      incr_int(Cop(Cmuli, [decr_int(transl arg1); untag_int(transl arg2)]))
+      incr_int(mul_int (decr_int(transl arg1)) (untag_int(transl arg2)))
   | Pdivint ->
       tag_int(safe_divmod Cdivi (untag_int(transl arg1))
                           (untag_int(transl arg2)) dbg)

@@ -46,6 +46,7 @@ let is_intconst = function
 exception Use_default
 
 let r1 = phys_reg 1
+let r12 = phys_reg 8
 
 let pseudoregs_for_operation op arg res =
   match op with
@@ -54,6 +55,15 @@ let pseudoregs_for_operation op arg res =
      is also a result of the mul / mla operation. *)
     Iintop Imul | Ispecific Imuladd when !arch < ARMv6 ->
       (arg, [| res.(0); arg.(0) |])
+  (* For integer division by a constant, which is not a power of 2, on ARMv6
+     and later, the result and argument registers must be different. We deal
+     with this by pretending that the argument value is also a result of the
+     operation. For modulus we also require a scratch register (r12) that
+     is different from both the result and argument registers. *)
+  | Iintop_imm(Idiv, n) when !arch >= ARMv6 && n <> 1 lsl Misc.log2 n->
+      (arg, [| res.(0); arg.(0) |])
+  | Iintop_imm(Imod, n) when !arch >= ARMv6 && n <> 1 lsl Misc.log2 n->
+      (arg, [| res.(0); arg.(0); r12 |])
   (* Soft-float Iabsf and Inegf: arg.(0) and res.(0) must be the same *)
   | Iabsf | Inegf when !fpu = Soft ->
       ([|res.(0); arg.(1)|], res)
@@ -168,13 +178,13 @@ method! select_operation op args =
   | (Cmuli, args) ->
       (Iintop Imul, args)
   (* Turn integer division/modulus into runtime ABI calls *)
-  | (Cdivi, [arg; Cconst_int n])
-    when n = 1 lsl Misc.log2 n ->
+  | (Cdivi, [arg; Cconst_int n]) when n > 0 && (!arch >= ARMv6
+                                                || n = 1 lsl Misc.log2 n) ->
       (Iintop_imm(Idiv, n), [arg])
   | (Cdivi, args) ->
       (Iextcall("__aeabi_idiv", false), args)
-  | (Cmodi, [arg; Cconst_int n])
-    when n > 1 && n = 1 lsl Misc.log2 n ->
+  | (Cmodi, [arg; Cconst_int n]) when n > 0 && (!arch >= ARMv6
+                                                || n = 1 lsl Misc.log2 n) ->
       (Iintop_imm(Imod, n), [arg])
   | (Cmodi, args) ->
       (* See above for fix up of return register *)
