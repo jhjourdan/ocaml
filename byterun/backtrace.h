@@ -37,4 +37,6 @@ extern frame_descr * caml_next_frame_descriptor(uintnat * pc, char ** sp);
 extern code_t caml_next_frame_pointer(value ** sp, value ** trapsp);
 #endif
 
+value caml_get_current_callstack(value max_frames_value);
+
 #endif /* CAML_BACKTRACE_H */

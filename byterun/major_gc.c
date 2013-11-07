@@ -236,7 +236,7 @@ static void mark_slice (intnat work)
              Handle finalised values and start removing dead weak arrays. */
           gray_vals_cur = gray_vals_ptr;
           caml_final_update ();
-          caml_memprof_major_gc ();
+          caml_memprof_major_gc_update ();
           gray_vals_ptr = gray_vals_cur;
           caml_gc_subphase = Subphase_weak2;
           weak_prev = &caml_weak_list_head;

@@ -22,6 +22,7 @@
 #include "mlvalues.h"
 #include "roots.h"
 #include "stacks.h"
+#include "memprof.h"
 
 CAMLexport struct caml__roots_block *caml_local_roots = NULL;
 
@@ -74,7 +75,9 @@ void caml_do_roots (scanning_action f)
   /* Global C roots */
   caml_scan_global_roots(f);
   /* Finalised values */
-  caml_final_do_strong_roots (f);
+  caml_final_do_strong_roots(f);
+  /* Memprof metadata */
+  caml_memprof_do_strong_roots(f);
   /* Hook */
   if (caml_scan_roots_hook != NULL) (*caml_scan_roots_hook)(f);
 }

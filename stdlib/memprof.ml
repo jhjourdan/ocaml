@@ -1,6 +1,6 @@
 type ctrl = {
     lambda : float;
-    dummy : unit
+    dumpped_callstack_size : int;
 }
 
 external get_ctrl : unit -> ctrl = "caml_memprof_get"

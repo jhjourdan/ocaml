@@ -13,8 +13,10 @@ static uint32 mt_index;
 
 /* [lambda] is the mean number of samples for each allocated word (including
    block headers. */
-static double lambda = 0.;
-static double lambda_rec = INFINITY;
+static double lambda = 0.01;
+static double lambda_rec = 100;
+
+static intnat dumpped_backtrace_size = 3;
 
 static double next_sample_young;
 char* caml_memprof_young_limit;
@@ -193,6 +195,7 @@ static void push_blks(struct caml_memprof_tracked_block* blk, uintnat num) {
     Assert(Is_in_heap_or_young(blk[i].block));
     caml_memprof_tracked_blocks[caml_memprof_tracked_blocks_end] = blk[i];
     caml_memprof_tracked_blocks_end++;
+    caml_remove_generational_global_root(&blk[i].callstack);
   }
 }
 
@@ -213,30 +216,13 @@ static void shrink(void) {
 
 static void fill_blk(struct caml_memprof_tracked_block *blk) {
   #ifdef NATIVE_CODE
-    {
-      uintnat pc = caml_last_return_address;
-      char * sp = caml_bottom_of_stack;
-      frame_descr * d;
-      d = caml_next_frame_descriptor(&pc, &sp);
-      if(d == NULL || (d -> frame_size & 3) != 1)
-        blk->loc1 = blk->loc2 = 0;
-      else {
-        uintnat infoptr =
-          ((uintnat) d +
-           sizeof(char *) + sizeof(short) + sizeof(short) +
-           sizeof(short) * d->num_live + sizeof(frame_descr *) - 1)
-          & -sizeof(frame_descr *);
-        blk->loc1 = ((uint32 *)infoptr)[0];
-        blk->loc2 = ((uint32 *)infoptr)[1];
-      }
-    }
-#else
-    {
-      value * sp = caml_extern_sp;
-      value * trapsp = caml_trapsp;
-      blk->loc = caml_next_frame_pointer(&sp, &trapsp);
-    }
-#endif
+  blk -> loc1 = blk -> loc2 = 0;
+  #endif
+
+  blk -> callstack =
+    //caml_alloc((mlsize_t) 12, Abstract_tag);
+    caml_get_current_callstack(Val_long(dumpped_backtrace_size));
+  caml_register_generational_global_root(&(blk -> callstack));
 }
 
 void caml_memprof_track_young(uintnat wosize) {
@@ -422,6 +408,8 @@ void caml_memprof_call_gc_end(double rest) {
       next_sample -= dbg[i].whsize;
       offs += dbg[i].whsize;
       if(next_sample < 0) {
+        fill_blk(&blk[blk_pos]);
+
         blk[blk_pos].occurences = mt_generate_poisson(-next_sample*lambda) + 1;
         next_sample = mt_generate_exponential();
 
@@ -462,11 +450,33 @@ void caml_memprof_call_gc_end(double rest) {
 }
 #endif
 
-void caml_memprof_minor_gc(char* old_young_ptr) {
-  uintnat i;
+void caml_memprof_clean() {
+  uintnat i, j;
 
-  next_sample_young -= Wsize_bsize(caml_young_end-old_young_ptr);
-  update_limit();
+  for(i = j = old; i < caml_memprof_tracked_blocks_end; i++) {
+    value blk = caml_memprof_tracked_blocks[i].block;
+    Assert(Is_in_heap_or_young(blk));
+    if(Is_young(blk)) {
+      if(Hd_val(blk) == 0) {
+        Assert(Is_in_heap(Field(blk, 0)));
+        caml_memprof_tracked_blocks[i].block = Field(blk, 0);
+      } else if(Hd_val(blk) != Make_header(0, 0, Caml_blue)) {
+        Assert(Is_white_val(blk) || Is_black_val(blk));
+        Assert(Wosize_val(blk) != 0);
+        Assert(Wosize_val(blk) <= Max_young_wosize);
+      } else
+        continue;
+    }
+    caml_memprof_tracked_blocks[j] = caml_memprof_tracked_blocks[i];
+    j++;
+  }
+  caml_memprof_tracked_blocks_end = j;
+
+  shrink();
+}
+
+void caml_memprof_minor_gc_update(char* old_young_ptr) {
+  uintnat i;
 
   for(i = old; i < caml_memprof_tracked_blocks_end; i++) {
     value blk = caml_memprof_tracked_blocks[i].block;
@@ -481,47 +491,31 @@ void caml_memprof_minor_gc(char* old_young_ptr) {
         Assert(Hd_val(blk) == Make_header(0, 0, Caml_blue) ||
                Wosize_val(blk) != 0);
         Assert(Wosize_val(blk) <= Max_young_wosize);
-
         continue;
       }
     }
     caml_memprof_tracked_blocks[old] = caml_memprof_tracked_blocks[i];
     old++;
   }
+
   caml_memprof_tracked_blocks_end = old;
 
   shrink();
+
+  next_sample_young -= Wsize_bsize(caml_young_end-old_young_ptr);
+  update_limit();
 }
 
-void caml_memprof_clean() {
+void caml_memprof_do_young_roots(scanning_action f) {
   uintnat i;
 
   for(i = old; i < caml_memprof_tracked_blocks_end; i++) {
-    value blk = caml_memprof_tracked_blocks[i].block;
-    Assert(Is_in_heap_or_young(blk));
-    if(Is_young(blk)) {
-      if(Hd_val(blk) == 0) {
-        Assert(Is_in_heap(Field(blk, 0)));
-        caml_memprof_tracked_blocks[i].block = Field(blk, 0);
-        caml_memprof_tracked_blocks[old] = caml_memprof_tracked_blocks[i];
-        old++;
-      } else if(Hd_val(blk) == Make_header(0, 0, Caml_blue))
-        continue;
-      else {
-        Assert(Is_white_val(blk) || Is_black_val(blk));
-        Assert(Wosize_val(blk) != 0);
-        Assert(Wosize_val(blk) <= Max_young_wosize);
-        caml_memprof_tracked_blocks[old] = caml_memprof_tracked_blocks[i];
-        old++;
-      }
-    }
+    value* r = &caml_memprof_tracked_blocks[i].callstack;
+    f(*r, r);
   }
-  caml_memprof_tracked_blocks_end = old;
-
-  shrink();
 }
 
-void caml_memprof_major_gc(void) {
+void caml_memprof_major_gc_update(void) {
   uintnat i, j;
 
   Assert(old == caml_memprof_tracked_blocks_end);
@@ -539,15 +533,26 @@ void caml_memprof_major_gc(void) {
   shrink();
 }
 
+void caml_memprof_do_strong_roots(scanning_action f) {
+  uintnat i;
+
+  Assert(old == caml_memprof_tracked_blocks_end);
+
+  for(i = 0; i < caml_memprof_tracked_blocks_end; i++) {
+    value* r = &caml_memprof_tracked_blocks[i].callstack;
+    f(*r, r);
+  }
+}
+
 void caml_memprof_do_weak_roots(scanning_action f) {
   uintnat i;
 
   Assert(old == caml_memprof_tracked_blocks_end);
 
   for(i = 0; i < caml_memprof_tracked_blocks_end; i++) {
-    Assert(Is_in_heap(caml_memprof_tracked_blocks[i].block));
-    f(caml_memprof_tracked_blocks[i].block,
-      &caml_memprof_tracked_blocks[i].block);
+    value* r = &caml_memprof_tracked_blocks[i].block;
+    Assert(Is_in_heap(*r));
+    f(*r, r);
   }
 }
 
@@ -557,6 +562,7 @@ CAMLprim value caml_memprof_get(value unit) {
 
   res = caml_alloc(2, 0);
   Store_field(res, 0, caml_copy_double(lambda));
+  Store_field(res, 1, Val_long(dumpped_backtrace_size));
 
   CAMLreturn(res);
 }
@@ -566,12 +572,16 @@ CAMLprim value caml_memprof_set(value v) {
   CAMLparam1(v);
 
   double l = Double_val(Field(v, 0));
-  if(!(l >= 0) || l > 1)
+  intnat sz = Long_val(Field(v, 1));
+
+  if(!(l >= 0) || l > 1 || sz < 0)
     caml_invalid_argument("caml_memprof_set");
 
   lambda = l;
   lambda_rec = l == 0 ? INFINITY : 1/l;
   renew_sample();
+
+  dumpped_backtrace_size = sz;
 
   CAMLreturn(Val_unit);
 }

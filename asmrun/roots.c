@@ -22,6 +22,7 @@
 #include "mlvalues.h"
 #include "stack.h"
 #include "roots.h"
+#include "memprof.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -241,6 +242,8 @@ void caml_oldify_local_roots (void)
   caml_scan_global_young_roots(&caml_oldify_one);
   /* Finalised values */
   caml_final_do_young_roots (&caml_oldify_one);
+  /* Memprof metadata */
+  caml_memprof_do_young_roots(&caml_oldify_one);
   /* Hook */
   if (caml_scan_roots_hook != NULL) (*caml_scan_roots_hook)(&caml_oldify_one);
 }
@@ -281,6 +284,8 @@ void caml_do_roots (scanning_action f)
   caml_scan_global_roots(f);
   /* Finalised values */
   caml_final_do_strong_roots (f);
+  /* Memprof metadata */
+  caml_memprof_do_strong_roots(f);
   /* Hook */
   if (caml_scan_roots_hook != NULL) (*caml_scan_roots_hook)(f);
 }
