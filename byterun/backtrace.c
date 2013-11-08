@@ -195,8 +195,8 @@ CAMLprim value caml_get_current_callstack(value max_frames_value) {
 #define O_BINARY 0
 #endif
 
-static char *read_debug_info_error = "";
-static value read_debug_info(void)
+char *caml_read_debug_info_error = "";
+value caml_read_debug_info(void)
 {
   CAMLparam0();
   CAMLlocal1(events);
@@ -214,13 +214,13 @@ static value read_debug_info(void)
   }
   fd = caml_attempt_open(&exec_name, &trail, 1);
   if (fd < 0){
-    read_debug_info_error = "executable program file not found";
+    caml_read_debug_info_error = "executable program file not found";
     CAMLreturn(Val_false);
   }
   caml_read_section_descriptors(fd, &trail);
   if (caml_seek_optional_section(fd, &trail, "DBUG") == -1) {
     close(fd);
-    read_debug_info_error = "program not linked with -g";
+    caml_read_debug_info_error = "program not linked with -g";
     CAMLreturn(Val_false);
   }
   chan = caml_open_descriptor_in(fd);
@@ -267,17 +267,8 @@ static value event_for_location(value events, code_t pc)
 
 /* Extract location information for the given PC */
 
-struct loc_info {
-  int loc_valid;
-  int loc_is_raise;
-  char * loc_filename;
-  int loc_lnum;
-  int loc_startchr;
-  int loc_endchr;
-};
-
-static void extract_location_info(value events, code_t pc,
-                                  /*out*/ struct loc_info * li)
+void caml_extract_location_info(value events, code_t pc,
+                                /*out*/ struct loc_info * li)
 {
   value ev, ev_start;
 
@@ -337,14 +328,14 @@ CAMLexport void caml_print_exception_backtrace(void)
   int i;
   struct loc_info li;
 
-  events = read_debug_info();
+  events = caml_read_debug_info();
   if (events == Val_false) {
     fprintf(stderr, "(Cannot print stack backtrace: %s)\n",
-            read_debug_info_error);
+            caml_read_debug_info_error);
     return;
   }
   for (i = 0; i < caml_backtrace_pos; i++) {
-    extract_location_info(events, caml_backtrace_buffer[i], &li);
+    caml_extract_location_info(events, caml_backtrace_buffer[i], &li);
     print_location(&li, i);
   }
 }
@@ -358,13 +349,13 @@ CAMLprim value caml_convert_raw_backtrace(value backtrace)
   int i;
   struct loc_info li;
 
-  events = read_debug_info();
+  events = caml_read_debug_info();
   if (events == Val_false) {
     res = Val_int(0);           /* None */
   } else {
     arr = caml_alloc(Wosize_val(backtrace), 0);
     for (i = 0; i < Wosize_val(backtrace); i++) {
-      extract_location_info(events, (code_t)Field(backtrace, i), &li);
+      caml_extract_location_info(events, (code_t)Field(backtrace, i), &li);
       if (li.loc_valid) {
         fname = caml_copy_string(li.loc_filename);
         p = caml_alloc_small(5, 0);

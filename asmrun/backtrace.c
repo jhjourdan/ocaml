@@ -196,17 +196,8 @@ CAMLprim value caml_get_current_callstack(value max_frames_value) {
 
 /* Extract location information for the given frame descriptor */
 
-struct loc_info {
-  int loc_valid;
-  int loc_is_raise;
-  char * loc_filename;
-  int loc_lnum;
-  int loc_startchr;
-  int loc_endchr;
-};
-
-static void extract_location_info(frame_descr * d,
-                                  /*out*/ struct loc_info * li)
+void caml_extract_location_info(frame_descr * d, intnat alloc_id,
+                                /*out*/ struct loc_info * li)
 {
   uintnat infoptr;
   uint32 info1, info2;
@@ -214,18 +205,28 @@ static void extract_location_info(frame_descr * d,
   /* If no debugging information available, print nothing.
      When everything is compiled with -g, this corresponds to
      compiler-inserted re-raise operations. */
-  if ((d->frame_size & 3) != 1) {
+  if ((d->frame_size & 3) == 0) {
     li->loc_valid = 0;
     li->loc_is_raise = 1;
     return;
   }
+
   /* Recover debugging info */
   infoptr = ((uintnat) d +
              sizeof(char *) + sizeof(short) + sizeof(short) +
              sizeof(short) * d->num_live + sizeof(frame_descr *) - 1)
             & -sizeof(frame_descr *);
-  info1 = ((uint32 *)infoptr)[0];
-  info2 = ((uint32 *)infoptr)[1];
+  if ((d->frame_size & 3) == 1) {
+    info1 = ((uint32 *)infoptr)[0];
+    info2 = ((uint32 *)infoptr)[1];
+  } else {
+    alloc_descr* dbg = (alloc_descr*)(infoptr+sizeof(uintnat));
+
+    Assert((d->frame_size & 3) == 2);
+    info1 = dbg[alloc_id].loc1;
+    info2 = dbg[alloc_id].loc2;
+  }
+
   /* Format of the two info words:
        llllllllllllllllllll aaaaaaaa bbbbbbbbbb nnnnnnnnnnnnnnnnnnnnnnnn kk
                           44       36         26                       2  0
@@ -247,10 +248,9 @@ static void extract_location_info(frame_descr * d,
 
    note that the test for compiler-inserted raises is slightly redundant:
      (!li->loc_valid && li->loc_is_raise)
-   extract_location_info above guarantees that when li->loc_valid is
-   0, then li->loc_is_raise is always 1, so the latter test is
-   useless. We kept it to keep code identical to the byterun/
-   implementation. */
+   caml_extract_location_info above guarantees that when li->loc_valid is
+   0, then li->loc_is_raise is always 1, so the latter test is useless.
+   We kept it to keep code identical to the byterun/ implementation. */
 
 static void print_location(struct loc_info * li, int index)
 {
@@ -288,7 +288,7 @@ void caml_print_exception_backtrace(void)
   struct loc_info li;
 
   for (i = 0; i < caml_backtrace_pos; i++) {
-    extract_location_info((frame_descr *) (caml_backtrace_buffer[i]), &li);
+    caml_extract_location_info((frame_descr *) (caml_backtrace_buffer[i]), 0, &li);
     print_location(&li, i);
   }
 }
@@ -303,7 +303,7 @@ CAMLprim value caml_convert_raw_backtrace(value backtrace) {
 
   arr = caml_alloc(Wosize_val(backtrace), 0);
   for (i = 0; i < Wosize_val(backtrace); i++) {
-    extract_location_info((frame_descr *) Field(backtrace, i), &li);
+    caml_extract_location_info((frame_descr *) Field(backtrace, i), 0, &li);
     if (li.loc_valid) {
       fname = caml_copy_string(li.loc_filename);
       p = caml_alloc_small(5, 0);
