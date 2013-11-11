@@ -182,6 +182,8 @@ CAMLprim value caml_get_current_callstack(value max_frames_value) {
       Assert(!(Is_block((value) p) && Is_in_heap((value) p)));
       Field(trace, trace_pos) = (value) p;
     }
+
+    Assert(trace_pos == trace_size);
   }
 
   CAMLreturn(trace);
