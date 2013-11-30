@@ -29,7 +29,7 @@ let allocated_list = function
 
 let rec combine i allocstate =
   match i.desc with
-    Iend | Ireturn | Iexit _ | Iraise ->
+    Iend | Ireturn | Iexit _ | Iraise _ ->
       (i, allocated_list allocstate)
   | Iop(Ialloc l) ->
       let sz = List.fold_left (fun acc (n, _) -> acc + n) 0 l in

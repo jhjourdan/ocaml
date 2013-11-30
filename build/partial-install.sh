@@ -20,18 +20,7 @@ set -e
 
 cd `dirname $0`/..
 
-# Save the following environment variables before sourcing config.sh since it
-# will overwrite them and the user might have set them to emulate $(DESTDIR)
-# which is unfortunately not supported.
-SAVED_BINDIR="${BINDIR}"
-SAVED_LIBDIR="${LIBDIR}"
-SAVED_MANDIR="${MANDIR}"
-
 . config/config.sh
-
-BINDIR="${SAVED_BINDIR:-${BINDIR}}"
-LIBDIR="${SAVED_LIBDIR:-${LIBDIR}}"
-MANDIR="${SAVED_MANDIR:-${MANDIR}}"
 
 not_installed=$PWD/_build/not_installed
 
@@ -114,55 +103,22 @@ installlibdir() {
 
 mkdir -p $BINDIR
 mkdir -p $LIBDIR
-mkdir -p $LIBDIR/camlp4
 mkdir -p $LIBDIR/ocamlbuild
+mkdir -p $STUBLIBDIR
 mkdir -p $MANDIR/man1
 mkdir -p $MANDIR/man3
+mkdir -p $MANDIR/man$MANEXT
 
 cd _build
 
-if [ -n "${WITH_CAMLP4}" ]; then
-  echo "Installing camlp4..."
-  installbin camlp4/camlp4prof.byte$EXE $BINDIR/camlp4prof$EXE
-  installbin camlp4/mkcamlp4.byte$EXE $BINDIR/mkcamlp4$EXE
-  installbin camlp4/camlp4.byte$EXE $BINDIR/camlp4$EXE
-  installbin camlp4/camlp4boot.byte$EXE $BINDIR/camlp4boot$EXE
-  installbin camlp4/camlp4o.byte$EXE $BINDIR/camlp4o$EXE
-  installbin camlp4/camlp4of.byte$EXE $BINDIR/camlp4of$EXE
-  installbin camlp4/camlp4oof.byte$EXE $BINDIR/camlp4oof$EXE
-  installbin camlp4/camlp4orf.byte$EXE $BINDIR/camlp4orf$EXE
-  installbin camlp4/camlp4r.byte$EXE $BINDIR/camlp4r$EXE
-  installbin camlp4/camlp4rf.byte$EXE $BINDIR/camlp4rf$EXE
-  installbin camlp4/camlp4o.native$EXE $BINDIR/camlp4o.opt$EXE
-  installbin camlp4/camlp4of.native$EXE $BINDIR/camlp4of.opt$EXE
-  installbin camlp4/camlp4oof.native$EXE $BINDIR/camlp4oof.opt$EXE
-  installbin camlp4/camlp4orf.native$EXE $BINDIR/camlp4orf.opt$EXE
-  installbin camlp4/camlp4r.native$EXE $BINDIR/camlp4r.opt$EXE
-  installbin camlp4/camlp4rf.native$EXE $BINDIR/camlp4rf.opt$EXE
-
-  cd camlp4
-  CAMLP4DIR=$LIBDIR/camlp4
-  for dir in Camlp4Parsers Camlp4Printers Camlp4Filters Camlp4Top; do
-    echo "Installing $dir..."
-    mkdir -p $CAMLP4DIR/$dir
-    installdir     \
-      $dir/*.cm*   \
-      $dir/*.$O    \
-      $CAMLP4DIR/$dir
-  done
-  installdir \
-    camlp4lib.cma camlp4lib.cmxa Camlp4.cmi \
-    camlp4fulllib.cma camlp4fulllib.cmxa \
-    camlp4o.cma camlp4of.cma camlp4oof.cma \
-    camlp4orf.cma camlp4r.cma camlp4rf.cma \
-    Camlp4Bin.cm[iox] Camlp4Bin.$O Camlp4Top.cm[io] \
-    Camlp4_config.cmi camlp4prof.cm[iox] camlp4prof.$O Camlp4_import.cmi \
-    $CAMLP4DIR
-  installlibdir camlp4lib.$A camlp4fulllib.$A $CAMLP4DIR
-  cd ..
-fi
-
-if [ -n "${WITH_OCAMLBUILD}" ]; then
+# I would have liked to test the value of ${WITH_OCAMLBUILD} instead of using
+# "test -d". However, the config.sh script that gets sourced near the top of
+# the file does: WITH_CAMLP4=${WITH_CAMLP4:-camlp4}, effectly destroying the
+# information that camlp4, ocamlbuild and others might have been disabled.
+# Of course, I tried to fix that. The config.sh file is created by mkconfig.sh
+# through an awful set of sed expressions which I don't feel confident to
+# change. -- Adrien Nader
+if test -d ocamlbuild; then
   echo "Installing ocamlbuild..."
   cd ocamlbuild
   installbin ocamlbuild.byte$EXE $BINDIR/ocamlbuild.byte$EXE

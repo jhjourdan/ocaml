@@ -60,6 +60,7 @@ let operation = function
   | Caddi -> "+"
   | Csubi -> "-"
   | Cmuli -> "*"
+  | Cmulhi -> "*h"
   | Cdivi -> "/"
   | Cmodi -> "mod"
   | Cand -> "and"
@@ -81,7 +82,7 @@ let operation = function
   | Cfloatofint -> "floatofint"
   | Cintoffloat -> "intoffloat"
   | Ccmpf c -> Printf.sprintf "%sf" (comparison c)
-  | Craise d -> "raise" ^ Debuginfo.to_string d
+  | Craise (k, d) -> Lambda.raise_kind k ^ Debuginfo.to_string d
   | Ccheckbound d -> "checkbound" ^ Debuginfo.to_string d
 
 let rec expr ppf = function

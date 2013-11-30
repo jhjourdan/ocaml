@@ -17,5 +17,6 @@ cd `dirname $0`/..
 touch build/ocamlbuild_mixed_mode
 mkdir -p _build
 cp -rf boot _build/
-./build/mk_shell_and_ocamlbuild_config.sh
+./build/mkconfig.sh
+./build/mkmyocamlbuild_config.sh
 ./build/boot.sh

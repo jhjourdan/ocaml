@@ -45,13 +45,6 @@ let slot_offset loc cls =
   | Incoming n -> frame_size() + n
   | Outgoing n -> n
 
-(* Whether stack backtraces are supported *)
-
-let supports_backtraces =
-  match Config.system with
-  | "rhapsody" -> true
-  | _ -> false
-
 (* Output a symbol *)
 
 let emit_symbol =
@@ -267,15 +260,16 @@ let name_for_int_comparison = function
 (* Names for various instructions *)
 
 let name_for_intop = function
-    Iadd -> "add"
-  | Imul -> if ppc64 then "mulld" else "mullw"
-  | Idiv -> if ppc64 then "divd" else "divw"
-  | Iand -> "and"
-  | Ior  -> "or"
-  | Ixor -> "xor"
-  | Ilsl -> if ppc64 then "sld" else "slw"
-  | Ilsr -> if ppc64 then "srd" else "srw"
-  | Iasr -> if ppc64 then "srad" else "sraw"
+    Iadd  -> "add"
+  | Imul  -> if ppc64 then "mulld" else "mullw"
+  | Imulh -> if ppc64 then "mulhd" else "mulhw"
+  | Idiv  -> if ppc64 then "divd" else "divw"
+  | Iand  -> "and"
+  | Ior   -> "or"
+  | Ixor  -> "xor"
+  | Ilsl  -> if ppc64 then "sld" else "slw"
+  | Ilsr  -> if ppc64 then "srd" else "srw"
+  | Iasr  -> if ppc64 then "srad" else "sraw"
   | _ -> Misc.fatal_error "Emit.Intop"
 
 let name_for_intop_imm = function
@@ -345,8 +339,6 @@ let instr_size = function
   | Lop(Iintop Imod) -> 3
   | Lop(Iintop(Icomp cmp)) -> 4
   | Lop(Iintop op) -> 1
-  | Lop(Iintop_imm(Idiv, n)) -> 2
-  | Lop(Iintop_imm(Imod, n)) -> 4
   | Lop(Iintop_imm(Icomp cmp, n)) -> 4
   | Lop(Iintop_imm(op, n)) -> 1
   | Lop(Inegf | Iabsf | Iaddf | Isubf | Imulf | Idivf) -> 1
@@ -366,7 +358,7 @@ let instr_size = function
   | Lsetuptrap lbl -> 1
   | Lpushtrap -> 4
   | Lpoptrap -> 2
-  | Lraise -> 6
+  | Lraise _ -> 6
 
 let label_map code =
   let map = Hashtbl.create 37 in
@@ -600,7 +592,7 @@ let rec emit_instr i dslot =
             emit_set_comp c i.res.(0)
         end
     | Lop(Iintop Icheckbound) ->
-        if !Clflags.debug && supports_backtraces then
+        if !Clflags.debug then
           record_frame Reg.Set.empty i.dbg [];
         `	{emit_string tglle}   {emit_reg i.arg.(0)}, {emit_reg i.arg.(1)}\n`
     | Lop(Iintop op) ->
@@ -608,16 +600,6 @@ let rec emit_instr i dslot =
         `	{emit_string instr}	{emit_reg i.res.(0)}, {emit_reg i.arg.(0)}, {emit_reg i.arg.(1)}\n`
     | Lop(Iintop_imm(Isub, n)) ->
         `	addi	{emit_reg i.res.(0)}, {emit_reg i.arg.(0)}, {emit_int(-n)}\n`
-    | Lop(Iintop_imm(Idiv, n)) ->       (* n is guaranteed to be a power of 2 *)
-        let l = Misc.log2 n in
-        `	{emit_string sragi}	{emit_reg i.res.(0)}, {emit_reg i.arg.(0)}, {emit_int l}\n`;
-        `	addze	{emit_reg i.res.(0)}, {emit_reg i.res.(0)}\n`
-    | Lop(Iintop_imm(Imod, n)) ->       (* n is guaranteed to be a power of 2 *)
-        let l = Misc.log2 n in
-        `	{emit_string sragi}	{emit_gpr 0}, {emit_reg i.arg.(0)}, {emit_int l}\n`;
-        `	addze	{emit_gpr 0}, {emit_gpr 0}\n`;
-        `	{emit_string slgi}	{emit_gpr 0}, {emit_gpr 0}, {emit_int l}\n`;
-        `	subfc	{emit_reg i.res.(0)}, {emit_gpr 0}, {emit_reg i.arg.(0)}\n`
     | Lop(Iintop_imm(Icomp cmp, n)) ->
         begin match cmp with
           Isigned c ->
@@ -628,7 +610,7 @@ let rec emit_instr i dslot =
             emit_set_comp c i.res.(0)
         end
     | Lop(Iintop_imm(Icheckbound, n)) ->
-        if !Clflags.debug && supports_backtraces then
+        if !Clflags.debug then
           record_frame Reg.Set.empty i.dbg [];
         `	{emit_string tglle}i   {emit_reg i.arg.(0)}, {emit_int n}\n`
     | Lop(Iintop_imm(op, n)) ->
@@ -770,17 +752,22 @@ let rec emit_instr i dslot =
         `	{emit_string lg}	{emit_gpr 29}, {emit_int size_addr}({emit_gpr 1})\n`;
         `	addi	{emit_gpr 1}, {emit_gpr 1}, 16\n`;
         stack_offset := !stack_offset - 16
-    | Lraise ->
-        if !Clflags.debug && supports_backtraces then begin
+    | Lraise k ->
+        begin match !Clflags.debug, k with
+        | true, Lambda.Raise_regular ->
           `	bl	{emit_symbol "caml_raise_exn"}\n`;
           record_frame Reg.Set.empty i.dbg []
-        end else begin
+        | true, Lambda.Raise_reraise ->
+          `	bl	{emit_symbol "caml_reraise_exn"}\n`;
+          record_frame Reg.Set.empty i.dbg []
+        | false, _
+        | true, Lambda.Raise_notrace ->
           `	{emit_string lg}	{emit_gpr 0}, 0({emit_gpr 29})\n`;
           `	mr	{emit_gpr 1}, {emit_gpr 29}\n`;
-          `	mtlr	{emit_gpr 0}\n`;
+          `	mtctr	{emit_gpr 0}\n`;
           `	{emit_string lg}	{emit_gpr 29}, {emit_int size_addr}({emit_gpr 1})\n`;
           `	addi	{emit_gpr 1}, {emit_gpr 1}, 16\n`;
-          `	blr\n`
+          `	bctr\n`
         end
 
 and emit_delay = function

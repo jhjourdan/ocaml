@@ -70,7 +70,7 @@ type operation =
   | Cload of memory_chunk
   | Calloc of Debuginfo.t
   | Cstore of memory_chunk
-  | Caddi | Csubi | Cmuli | Cdivi | Cmodi
+  | Caddi | Csubi | Cmuli | Cmulhi | Cdivi | Cmodi
   | Cand | Cor | Cxor | Clsl | Clsr | Casr
   | Ccmpi of comparison
   | Cadda | Csuba
@@ -79,7 +79,7 @@ type operation =
   | Caddf | Csubf | Cmulf | Cdivf
   | Cfloatofint | Cintoffloat
   | Ccmpf of comparison
-  | Craise of Debuginfo.t
+  | Craise of Lambda.raise_kind * Debuginfo.t
   | Ccheckbound of Debuginfo.t
 
 type expression =
