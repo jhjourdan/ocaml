@@ -205,9 +205,9 @@ void caml_extract_location_info(frame_descr * d, intnat alloc_id,
   /* If no debugging information available, print nothing.
      When everything is compiled with -g, this corresponds to
      compiler-inserted re-raise operations. */
-  if ((d->frame_size & 3) == 0) {
+  if ((d->frame_size & 1) == 0) {
     li->loc_valid = 0;
-    li->loc_is_raise = 1;
+    li->loc_is_raise = ((d->frame_size & 2) == 0);
     return;
   }
 
@@ -216,15 +216,20 @@ void caml_extract_location_info(frame_descr * d, intnat alloc_id,
              sizeof(char *) + sizeof(short) + sizeof(short) +
              sizeof(short) * d->num_live + sizeof(frame_descr *) - 1)
             & -sizeof(frame_descr *);
-  if ((d->frame_size & 3) == 1) {
-    info1 = ((uint32 *)infoptr)[0];
-    info2 = ((uint32 *)infoptr)[1];
-  } else {
-    alloc_descr* dbg = (alloc_descr*)(infoptr+sizeof(uintnat));
+  if ((d->frame_size & 2) == 2) {
+    unsigned short num_blocks = (*(unsigned short*)infoptr);
+    infoptr += sizeof(short) + num_blocks * sizeof(short);
+    infoptr = (infoptr + sizeof(frame_descr *) - 1) & -sizeof(frame_descr *);
+    infoptr += 8 * alloc_id;
+  }
 
-    Assert((d->frame_size & 3) == 2);
-    info1 = dbg[alloc_id].loc1;
-    info2 = dbg[alloc_id].loc2;
+  info1 = ((uint32 *)infoptr)[0];
+  info2 = ((uint32 *)infoptr)[1];
+  /* Can happen in a partly annotated allocation */
+  if(info1 == 0 && info2 == 0) {
+    li->loc_valid = 0;
+    li->loc_is_raise = 0;
+    return;
   }
 
   /* Format of the two info words:
@@ -238,7 +243,7 @@ void caml_extract_location_info(frame_descr * d, intnat alloc_id,
      b (10 bits): end of character range */
   li->loc_valid = 1;
   li->loc_is_raise = (info1 & 3) != 0;
-  li->loc_filename = (char *) infoptr + (info1 & 0x3FFFFFC);
+  li->loc_filename = (char*)infoptr + (info1 & 0x3FFFFFC);
   li->loc_lnum = info2 >> 12;
   li->loc_startchr = (info2 >> 4) & 0xFF;
   li->loc_endchr = ((info2 & 0xF) << 6) | (info1 >> 26);

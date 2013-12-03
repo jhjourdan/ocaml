@@ -2731,9 +2731,10 @@ let compile_matching loc repr handler_fun arg pat_act_list partial =
 
 
 let partial_function loc () =
+  let loc = if !Clflags.debug then loc else Location.none in
   (* [Location.get_pos_info] is too expensive *)
   let (fname, line, char) = Location.get_pos_info loc.Location.loc_start in
-  Lprim(Praise Raise_regular, [Lprim(Pmakeblock(0, Immutable),
+  Lprim(Praise Raise_regular, [Lprim(Pmakeblock(0, Immutable, loc),
           [transl_path Predef.path_match_failure;
            Lconst(Const_block(0,
               [Const_base(Const_string (fname, None));
@@ -2835,7 +2836,8 @@ let compile_flattened repr partial ctx _ pmh = match pmh with
     compile_orhandlers (compile_match repr partial) lam total ctx hs
 | PmVar _ -> assert false
 
-let do_for_multiple_match loc paraml pat_act_list partial =
+let do_for_multiple_match loc paraml pat_act_list partial tuple_loc =
+  let tuple_loc = if !Clflags.debug then tuple_loc else Location.none in
   let repr = None in
   let partial = check_partial pat_act_list partial in
   let raise_num,pm1 =
@@ -2844,12 +2846,12 @@ let do_for_multiple_match loc paraml pat_act_list partial =
         let raise_num = next_raise_count () in
         raise_num,
         { cases = List.map (fun (pat, act) -> ([pat], act)) pat_act_list;
-          args = [Lprim(Pmakeblock(0, Immutable), paraml), Strict] ;
+          args = [Lprim(Pmakeblock(0, Immutable, tuple_loc), paraml), Strict] ;
           default = [[[omega]],raise_num] }
     | _ ->
         -1,
         { cases = List.map (fun (pat, act) -> ([pat], act)) pat_act_list;
-          args = [Lprim(Pmakeblock(0, Immutable), paraml), Strict] ;
+          args = [Lprim(Pmakeblock(0, Immutable, tuple_loc), paraml), Strict] ;
           default = [] } in
 
   try
@@ -2908,8 +2910,8 @@ let bind_opt (v,eo) k = match eo with
 | None -> k
 | Some e ->  Lambda.bind Strict v e k
 
-let for_multiple_match loc paraml pat_act_list partial =
+let for_multiple_match loc paraml pat_act_list partial tuple_loc =
   let v_paraml = List.map param_to_var paraml in
   let paraml = List.map (fun (v,_) -> Lvar v) v_paraml in
   List.fold_right bind_opt v_paraml
-    (do_for_multiple_match loc paraml pat_act_list partial)
+    (do_for_multiple_match loc paraml pat_act_list partial tuple_loc)

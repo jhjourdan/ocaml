@@ -116,7 +116,8 @@ type frame_descr =
     fd_frame_size: int;                 (* Size of stack frame *)
     fd_live_offset: int list;           (* Offsets/regs of live addresses *)
     fd_debuginfo: Debuginfo.t;          (* Location, if any *)
-    fd_allocs: (int * Debuginfo.t) list }
+    fd_allocs: (int * Debuginfo.t) list}(* Location and sizes,
+                                           for an allocation frame *)
 
 let frame_descriptors = ref([] : frame_descr list)
 
@@ -157,10 +158,15 @@ let emit_frames a =
   let emit_frame fd =
     a.efa_label fd.fd_lbl;
     let sz_word =
-      match Debuginfo.is_none fd.fd_debuginfo, fd.fd_allocs = [] with
-      | true, true -> fd.fd_frame_size
-      | false, true -> fd.fd_frame_size + 1
-      | true, false -> fd.fd_frame_size + 2
+      match Debuginfo.is_none fd.fd_debuginfo,
+            fd.fd_allocs = [] with
+      | true, true -> fd.fd_frame_size  (* Non-alloc frame without debug *)
+      | false, true -> fd.fd_frame_size + 1 (* Non-alloc frame with debug *)
+      | true, false ->
+          if List.for_all (fun (_, d) -> Debuginfo.is_none d) fd.fd_allocs then
+            fd.fd_frame_size + 2 (* Alloc frame without debug *)
+          else
+            fd.fd_frame_size + 3 (* Alloc frame with debug *)
       | false, false -> assert false
     in
     a.efa_16 sz_word;
@@ -170,11 +176,14 @@ let emit_frames a =
     if not (Debuginfo.is_none fd.fd_debuginfo) then
       emit_debug_info_words a fd.fd_debuginfo;
     if fd.fd_allocs <> [] then begin
-      a.efa_word (List.length fd.fd_allocs);
-      List.iter (fun (n, dbg) ->
-        a.efa_word (n / Arch.size_addr);
-        if Debuginfo.is_none dbg then (a.efa_32 0l; a.efa_32 0l)
-        else emit_debug_info_words a dbg) fd.fd_allocs
+      a.efa_16 (List.length fd.fd_allocs);
+      List.iter (fun (n, _) -> a.efa_16 (n / Arch.size_addr)) fd.fd_allocs;
+      a.efa_align Arch.size_addr;
+      if not (List.for_all (fun (_, d) -> Debuginfo.is_none d) fd.fd_allocs) then
+        List.iter (fun (_, dbg) ->
+          if Debuginfo.is_none dbg then (a.efa_32 0l; a.efa_32 0l)
+          else emit_debug_info_words a dbg)
+          fd.fd_allocs
     end
   in
   let emit_filename name lbl =

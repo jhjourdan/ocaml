@@ -7,6 +7,7 @@
 #include "fail.h"
 #include "memory.h"
 #include "alloc.h"
+#include "hash.h"
 
 static uint32 mt_state[624];
 static uint32 mt_index;
@@ -24,7 +25,6 @@ char* caml_memprof_young_limit;
 struct tracked_block {
   value block;
 #ifdef NATIVE_CODE
-  frame_descr * alloc_frame;
   uint32 alloc_frame_pos;
 #endif
   uint32 occurences;
@@ -225,7 +225,6 @@ void caml_memprof_track_young(uintnat wosize) {
   renew_sample();
 
 #ifdef NATIVE_CODE
-  blk.alloc_frame = NULL;
   blk.alloc_frame_pos = 0;
 #endif
 
@@ -261,7 +260,6 @@ value caml_memprof_track_alloc_shr(value block) {
     Tag_val(block) = Abstract_tag;
 
 #ifdef NATIVE_CODE
-    blk.alloc_frame = NULL;
     blk.alloc_frame_pos = 0;
 #endif
 
@@ -340,7 +338,6 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
   CAMLxparamN(sampled, j);
 
 #ifdef NATIVE_CODE
-  blk.alloc_frame = NULL;
   blk.alloc_frame_pos = 0;
 #endif
 
@@ -379,8 +376,8 @@ void caml_memprof_call_gc_end(double rest) {
   uintnat infoptr;
   uintnat i;
   uintnat tot_whsize;
-  uintnat num_blocks;
-  alloc_descr* dbg;
+  unsigned short num_blocks;
+  unsigned short* block_sizes;
   CAMLparam0();
   CAMLlocal1(callstack);
 
@@ -391,43 +388,33 @@ void caml_memprof_call_gc_end(double rest) {
 
   d = caml_next_frame_descriptor(&pc, &sp);
   /* Should not happen, except on sparc */
-  if(d == NULL || (d -> frame_size & 3) != 2)
+  if(d == NULL || (d->frame_size & 2) != 2)
     CAMLreturn0;
   infoptr = ((uintnat) d +
              sizeof(char *) + sizeof(short) + sizeof(short) +
              sizeof(short) * d->num_live + sizeof(frame_descr *) - 1)
             & -sizeof(frame_descr *);
 
-  num_blocks = *(uintnat*)infoptr;
-  dbg = (alloc_descr*)(infoptr+sizeof(uintnat));
+  num_blocks = *(unsigned short*)infoptr;
+  block_sizes = ((unsigned short*)infoptr) + 1;
 
   tot_whsize = 0;
   for(i = 0; i < num_blocks; i++)
-    tot_whsize += dbg[i].whsize;
+    tot_whsize += block_sizes[i];
 
   if(rest > 0) {
     double next_sample = tot_whsize - rest;
     uintnat offs = 0;
     struct tracked_block blk;
 
-    if(dumpped_backtrace_size == 0 ||
-       (dbg[i].loc1 == 0 && dbg[i].loc2 == 0)) {
-      blk.alloc_frame = NULL;
-      blk.alloc_frame_pos = 0;
-      callstack =
-        caml_get_current_callstack(Val_long(dumpped_backtrace_size));
-    } else {
-      blk.alloc_frame = d;
-      callstack =
-        caml_get_current_callstack(Val_long(dumpped_backtrace_size-1));
-    }
+    callstack = caml_get_current_callstack(Val_long(dumpped_backtrace_size));
 
     if(caml_young_ptr - Bsize_wsize(tot_whsize) < caml_young_start)
       caml_minor_collection();
 
     for(i = 0; i < num_blocks; i++) {
-      next_sample -= dbg[i].whsize;
-      offs += dbg[i].whsize;
+      next_sample -= block_sizes[i];
+      offs += block_sizes[i];
       if(next_sample < 0) {
         blk.occurences = mt_generate_poisson(-next_sample*lambda) + 1;
         blk.alloc_frame_pos = i;
@@ -606,98 +593,190 @@ CAMLprim value caml_memprof_clear(value unit) {
   CAMLreturn(Val_unit);
 }
 
+static value value_of_locinfo(const struct loc_info *li, int32 h) {
+  CAMLparam0();
+  CAMLlocal1(res);
+
+  res = caml_alloc(5, 0);
+
+  Store_field(res, 0, Val_long(h & 0x3FFFFFFF));
+
+  if(li->loc_valid) {
+    Store_field(res, 1, caml_copy_string(li->loc_filename));
+    Store_field(res, 2, Val_long(li->loc_lnum));
+    Store_field(res, 3, Val_long(li->loc_startchr));
+    Store_field(res, 4, Val_long(li->loc_endchr));
+  } else {
+    Store_field(res, 1, caml_copy_string(""));
+    Store_field(res, 2, Val_long(0));
+    Store_field(res, 3, Val_long(0));
+    Store_field(res, 4, Val_long(0));
+  }
+
+  CAMLreturn(res);
+}
+
+struct loc_htbl {
+  struct loc_entry {
+    intnat isample, jloc;
+    uint32 h;
+  } *htbl;
+  uintnat lsize, slots;
+};
+
+static void loc_htbl_resize(struct loc_htbl* loc_htbl) {
+  uintnat i, new_lsize, mask;
+  struct loc_entry *new_htbl;
+
+  if(loc_htbl->htbl != NULL &&
+     loc_htbl->slots <= (1LL << (loc_htbl->lsize - 1)))
+    return;
+
+  new_lsize = loc_htbl->htbl == NULL ? 6 : loc_htbl->lsize + 1;
+  mask = (1 << new_lsize) - 1;
+  new_htbl =
+    (struct loc_entry*)malloc(sizeof(struct loc_entry) << new_lsize);
+
+  if(new_htbl == NULL) {
+    free(loc_htbl->htbl);
+    loc_htbl->htbl = NULL;
+    return;
+  }
+
+  for(i = 0; (i >> new_lsize) == 0; i++)
+    new_htbl[i].isample = -1;
+
+  if(loc_htbl->htbl != NULL) {
+    for(i = 0; (i >> loc_htbl->lsize) == 0; i++) {
+      uintnat j = loc_htbl->htbl[i].h & mask;
+      while(new_htbl[j].isample != -1) j = (j+1) & mask;
+      new_htbl[j] = loc_htbl->htbl[i];
+    }
+    free(loc_htbl->htbl);
+  }
+
+  loc_htbl->htbl = new_htbl;
+  loc_htbl->lsize = new_lsize;
+}
+
 CAMLprim value caml_memprof_dump_samples(value unit) {
   CAMLparam0();
-  CAMLlocal5(res, sample, trace, loc, events);
+  CAMLlocal4(res, sample, trace, events);
   uintnat i, j;
   struct tracked_block* buffer;
-  struct loc_info li;
+  struct loc_htbl loc_htbl;
+  value* callstacks;
 
   caml_memprof_clean();
 
-  if(tracked_blocks_end == 0) {
+  if(tracked_blocks_end == 0)
     CAMLreturn(Atom(0)); // empty array
-  }
 
-  buffer = (struct tracked_block*)
-    malloc(tracked_blocks_end * sizeof(struct tracked_block));
-  memcpy(buffer, tracked_blocks,
-         tracked_blocks_end * sizeof(struct tracked_block));
-  for(i = 0; i < tracked_blocks_end; i++) {
-    caml_register_generational_global_root(&buffer[i].callstack);
-    buffer[i].block = Val_long(Wosize_val(buffer[i].block));
-  }
-
-  res = caml_alloc(tracked_blocks_end, 0);
+  if(tracked_blocks_end > Max_wosize)
+    caml_failwith("Too many samples to dump.");
 
 #ifndef NATIVE_CODE
   events = caml_read_debug_info();
-  if(events == Val_false) {
-    free(buffer);
+  if(events == Val_false)
     caml_failwith(caml_read_debug_info_error);
-  }
 #endif
 
+  buffer = (struct tracked_block*)
+    malloc(tracked_blocks_end * sizeof(struct tracked_block));
+  if(buffer == NULL)
+    caml_raise_out_of_memory();
+  memcpy(buffer, tracked_blocks,
+         tracked_blocks_end * sizeof(struct tracked_block));
+
+  callstacks = (value*)malloc(tracked_blocks_end * sizeof(value));
+  if(callstacks == NULL) {
+    free(buffer);
+    caml_raise_out_of_memory();
+  }
+
+  for(i = 0; i < tracked_blocks_end; i++) {
+    callstacks[i] = buffer[i].callstack;
+    buffer[i].block = Val_long(Wosize_val(buffer[i].block));
+  }
+
+  Begin_roots_block(callstacks, tracked_blocks_end);
+  res = caml_alloc(tracked_blocks_end, 0);
+
+  loc_htbl.htbl = NULL;
+  loc_htbl.slots = 0;
+  loc_htbl_resize(&loc_htbl);
+  if(loc_htbl.htbl == NULL) goto oom;
+
   for(i = 0; i < Wosize_val(res); i++) {
-#ifdef NATIVE_CODE
-    intnat specialslot = buffer[i].alloc_frame != NULL;
-#else
-    intnat specialslot = 0;
-#endif
+    struct loc_info li;
 
     sample = caml_alloc(3, 0);
     Store_field(res, i, sample);
     Store_field(sample, 1, buffer[i].block);
     Store_field(sample, 2, Val_long(buffer[i].occurences));
 
-    trace = caml_alloc(Wosize_val(buffer[i].callstack) + specialslot, 0);
+    trace = caml_alloc(Wosize_val(callstacks[i]), 0);
     Store_field(sample, 0, trace);
 
+    for(j = 0; j < Wosize_val(callstacks[i]); j++) {
 #ifdef NATIVE_CODE
-    if(specialslot) {
-      caml_extract_location_info(buffer[i].alloc_frame,
-                                 buffer[i].alloc_frame_pos, &li);
-      loc = caml_alloc(4, 0);
-      Store_field(trace, 0, loc);
-
-      if(li.loc_valid) {
-        Store_field(loc, 0, caml_copy_string(li.loc_filename));
-        Store_field(loc, 1, Val_long(li.loc_lnum));
-        Store_field(loc, 2, Val_long(li.loc_startchr));
-        Store_field(loc, 3, Val_long(li.loc_endchr));
-      } else {
-        Store_field(loc, 0, Atom(String_tag));
-        Store_field(loc, 1, Val_long(0));
-        Store_field(loc, 2, Val_long(0));
-        Store_field(loc, 3, Val_long(0));
-      }
-    }
-#endif
-
-    for(j = 0; j < Wosize_val(buffer[i].callstack); j++) {
-#ifdef NATIVE_CODE
-      caml_extract_location_info((frame_descr*)Field(buffer[i].callstack, j), 0, &li);
+      frame_descr *f = (frame_descr*)Field(callstacks[i], j);
+      uint32 h = caml_hash_mix_uint32(caml_hash_mix_intnat(0, (intnat)f), 0);
+      uintnat pos = j == 0 ? buffer[i].alloc_frame_pos : 0;
 #else
-      caml_extract_location_info(events, (code_t)Field(buffer[i].callstack, j), &li);
+      code_t c = (code_t)Field(callstacks[i], j);
+      uint32 h = caml_hash_mix_intnat(0, (intnat)c);
 #endif
-      loc = caml_alloc(4, 0);
-      Store_field(trace, j+specialslot, loc);
+      uintnat mask = (1LL << loc_htbl.lsize) - 1;
+      uintnat k;
 
-      if(li.loc_valid) {
-        Store_field(loc, 0, caml_copy_string(li.loc_filename));
-        Store_field(loc, 1, Val_long(li.loc_lnum));
-        Store_field(loc, 2, Val_long(li.loc_startchr));
-        Store_field(loc, 3, Val_long(li.loc_endchr));
-      } else {
-        Store_field(loc, 0, Atom(String_tag));
-        Store_field(loc, 1, Val_long(0));
-        Store_field(loc, 2, Val_long(0));
-        Store_field(loc, 3, Val_long(0));
+      for(k = h & mask; loc_htbl.htbl[k].isample != -1; k = (k+1) & mask) {
+#ifdef NATIVE_CODE
+        uintnat j_k = loc_htbl.htbl[k].jloc;
+        uintnat isample = loc_htbl.htbl[k].isample;
+        frame_descr *f_k = (frame_descr*)Field(callstacks[isample], j_k);
+        uint32 pos_k = j_k == 0 ? buffer[isample].alloc_frame_pos : 0;
+
+        if(f == f_k && pos == pos_k)
+          break;
+#else
+        code_t c_k = (code_t)
+          Field(callstacks[loc_htbl.htbl[k].isample], loc_htbl.htbl[k].jloc);
+        if(c == c_k)
+          break;
+#endif
       }
 
+      if(loc_htbl.htbl[k].isample == -1) {
+#ifdef NATIVE_CODE
+        caml_extract_location_info(f, pos, &li);
+#else
+        caml_extract_location_info(events, c, &li);
+#endif
+        Store_field(trace, j, value_of_locinfo(&li, h));
+
+        loc_htbl.htbl[k].isample = i;
+        loc_htbl.htbl[k].jloc = j;
+        loc_htbl.htbl[k].h = h;
+        loc_htbl.slots++;
+        loc_htbl_resize(&loc_htbl);
+        if(loc_htbl.htbl == NULL) goto oom;
+      } else
+        Store_field(trace, j,
+          Field(Field(Field(res, loc_htbl.htbl[k].isample), 0), loc_htbl.htbl[k].jloc));
     }
-    caml_remove_generational_global_root(&buffer[i].callstack);
   }
 
+  End_roots();
+
+  free(loc_htbl.htbl);
+  free(buffer);
+  free(callstacks);
+
   CAMLreturn(res);
+
+  oom:
+  free(buffer);
+  free(callstacks);
+  caml_raise_out_of_memory();
 }

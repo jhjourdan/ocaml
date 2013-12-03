@@ -30,12 +30,12 @@ type primitive =
   | Pgetglobal of Ident.t
   | Psetglobal of Ident.t
   (* Operations on heap blocks *)
-  | Pmakeblock of int * mutable_flag
+  | Pmakeblock of int * mutable_flag * Location.t
   | Pfield of int
   | Psetfield of int * bool
   | Pfloatfield of int
   | Psetfloatfield of int
-  | Pduprecord of Types.record_representation * int
+  | Pduprecord of Types.record_representation * int * Location.t
   (* Force lazy values *)
   | Plazyforce
   (* External call *)
@@ -59,7 +59,7 @@ type primitive =
   (* String operations *)
   | Pstringlength | Pstringrefu | Pstringsetu | Pstringrefs | Pstringsets
   (* Array operations *)
-  | Pmakearray of array_kind
+  | Pmakearray of array_kind * Location.t
   | Parraylength of array_kind
   | Parrayrefu of array_kind
   | Parraysetu of array_kind

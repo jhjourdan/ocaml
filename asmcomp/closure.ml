@@ -89,7 +89,7 @@ let prim_size prim args =
     Pidentity -> 0
   | Pgetglobal id -> 1
   | Psetglobal id -> 1
-  | Pmakeblock(tag, mut) -> 5 + List.length args
+  | Pmakeblock(tag, mut, _) -> 5 + List.length args
   | Pfield f -> 1
   | Psetfield(f, isptr) -> if isptr then 4 else 1
   | Pfloatfield f -> 1
@@ -99,7 +99,7 @@ let prim_size prim args =
   | Praise _ -> 4
   | Pstringlength -> 5
   | Pstringrefs | Pstringsets -> 6
-  | Pmakearray kind -> 5 + List.length args
+  | Pmakearray (kind, _) -> 5 + List.length args
   | Parraylength kind -> if kind = Pgenarray then 6 else 2
   | Parrayrefu kind -> if kind = Pgenarray then 12 else 2
   | Parraysetu kind -> if kind = Pgenarray then 16 else 4
@@ -527,7 +527,7 @@ let rec close fenv cenv = function
       let nargs = List.length args in
       begin match (close fenv cenv funct, close_list fenv cenv args) with
         ((ufunct, Value_closure(fundesc, approx_res)),
-         [Uprim(Pmakeblock(_, _), uargs, _)])
+         [Uprim(Pmakeblock(_, _, _), uargs, _)])
         when List.length uargs = - fundesc.fun_arity ->
           let app = direct_apply fundesc funct ufunct uargs in
           (app, strengthen_approx app approx_res)
@@ -627,7 +627,7 @@ let rec close fenv cenv = function
       check_constant_result lam
                             (getglobal id)
                             (Compilenv.global_approx id)
-  | Lprim(Pmakeblock(tag, mut) as prim, lams) ->
+  | Lprim(Pmakeblock(tag, mut, _) as prim, lams) ->
       let (ulams, approxs) = List.split (List.map (close fenv cenv) lams) in
       (Uprim(prim, ulams, Debuginfo.none),
        begin match mut with

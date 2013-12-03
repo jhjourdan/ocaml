@@ -120,7 +120,7 @@ typedef struct { uint32 l, h; } uint64, int64;
 
 
 /* Maximum size of a block allocated in the young generation (words). */
-/* Must be > 4 */
+/* Must be > 4 and < 65536 */
 #define Max_young_wosize 256
 
 

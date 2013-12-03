@@ -624,15 +624,15 @@ let rec expr_size env = function
       expr_size (Ident.add id (expr_size env exp) env) body
   | Uletrec(bindings, body) ->
       expr_size env body
-  | Uprim(Pmakeblock(tag, mut), args, _) ->
+  | Uprim(Pmakeblock(tag, mut, _), args, _) ->
       RHS_block (List.length args)
-  | Uprim(Pmakearray(Paddrarray | Pintarray), args, _) ->
+  | Uprim(Pmakearray((Paddrarray | Pintarray), _), args, _) ->
       RHS_block (List.length args)
-  | Uprim(Pmakearray(Pfloatarray), args, _) ->
+  | Uprim(Pmakearray(Pfloatarray, _), args, _) ->
       RHS_floatblock (List.length args)
-  | Uprim (Pduprecord (Record_regular, sz), _, _) ->
+  | Uprim (Pduprecord (Record_regular, sz, _), _, _) ->
       RHS_block sz
-  | Uprim (Pduprecord (Record_float, sz), _, _) ->
+  | Uprim (Pduprecord (Record_float, sz, _), _, _) ->
       RHS_floatblock sz
   | Usequence(exp, exp') ->
       expr_size env exp'
@@ -1301,10 +1301,10 @@ let rec transl = function
       begin match (simplif_primitive prim, args) with
         (Pgetglobal id, []) ->
           Cconst_symbol (Ident.name id)
-      | (Pmakeblock(tag, mut), []) ->
+      | (Pmakeblock(tag, mut, _), []) ->
           transl_constant(Const_block(tag, []))
-      | (Pmakeblock(tag, mut), args) ->
-          make_alloc tag (List.map transl args) dbg
+      | (Pmakeblock(tag, mut, loc), args) ->
+          make_alloc tag (List.map transl args) (Debuginfo.from_location Debuginfo.Dinfo_call loc)
       | (Pccall prim, args) ->
           if prim.prim_native_float then
             box_float dbg
@@ -1314,12 +1314,13 @@ let rec transl = function
             Cop(Cextcall(Primitive.native_name prim, typ_addr, prim.prim_alloc,
                          dbg),
                 List.map transl args)
-      | (Pmakearray kind, []) ->
+      | (Pmakearray (kind, _), []) ->
           transl_constant(Const_block(0, []))
-      | (Pmakearray kind, args) ->
+      | (Pmakearray (kind, loc), args) ->
+          let dbg = Debuginfo.from_location Debuginfo.Dinfo_call loc in
           begin match kind with
             Pgenarray ->
-              Cop(Cextcall("caml_make_array", typ_addr, true, Debuginfo.none),
+              Cop(Cextcall("caml_make_array", typ_addr, true, dbg),
                   [make_alloc 0 (List.map transl args) dbg])
           | Paddrarray | Pintarray ->
               make_alloc 0 (List.map transl args) dbg

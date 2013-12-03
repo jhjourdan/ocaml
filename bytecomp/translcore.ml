@@ -144,8 +144,6 @@ let primitives_table = create_hashtable 57 [
   "%field0", Pfield 0;
   "%field1", Pfield 1;
   "%setfield0", Psetfield(0, true);
-  "%makeblock", Pmakeblock(0, Immutable);
-  "%makemutable", Pmakeblock(0, Mutable);
   "%raise", Praise Raise_regular;
   "%reraise", Praise Raise_reraise;
   "%raise_notrace", Praise Raise_notrace;
@@ -322,9 +320,12 @@ let prim_obj_dup =
     prim_native_name = ""; prim_native_float = false }
 
 let find_primitive loc prim_name =
+  let loc = if !Clflags.debug then loc else Location.none in
   match prim_name with
       "%revapply" -> Prevapply loc
     | "%apply" -> Pdirapply loc
+    | "%makeblock" -> Pmakeblock(0, Immutable, loc)
+    | "%makemutable" -> Pmakeblock(0, Mutable, loc)
     | name -> Hashtbl.find primitives_table name
 
 let transl_prim loc prim args =
@@ -415,6 +416,12 @@ let transl_primitive loc p =
       Lfunction(Curried, params,
                 Lprim(prim, List.map (fun id -> Lvar id) params))
 
+(* Pmakeblock helper *)
+
+let pmakeblock tag mut loc =
+  if !Clflags.debug then Pmakeblock(tag, mut, loc)
+  else Pmakeblock(tag, mut, Location.none)
+
 (* To check the well-formedness of r.h.s. of "let rec" definitions *)
 
 let check_recursive_lambda idlist lam =
@@ -428,7 +435,7 @@ let check_recursive_lambda idlist lam =
         let idlist' = add_letrec bindings idlist in
         List.for_all (fun (id, arg) -> check idlist' arg) bindings &&
         check_top idlist' body
-    | Lprim (Pmakearray (Pgenarray), args) -> false
+    | Lprim (Pmakearray (Pgenarray, _), args) -> false
     | Lsequence (lam1, lam2) -> check idlist lam1 && check_top idlist lam2
     | Levent (lam, _) -> check_top idlist lam
     | lam -> check idlist lam
@@ -444,9 +451,9 @@ let check_recursive_lambda idlist lam =
         let idlist' = add_letrec bindings idlist in
         List.for_all (fun (id, arg) -> check idlist' arg) bindings &&
         check idlist' body
-    | Lprim(Pmakeblock(tag, mut), args) ->
+    | Lprim(Pmakeblock(tag, mut, _), args) ->
         List.for_all (check idlist) args
-    | Lprim(Pmakearray(_), args) ->
+    | Lprim(Pmakearray _, args) ->
         List.for_all (check idlist) args
     | Lsequence (lam1, lam2) -> check idlist lam1 && check idlist lam2
     | Levent (lam, _) -> check idlist lam
@@ -588,7 +595,7 @@ let assert_failed exp =
   let (fname, line, char) =
     Location.get_pos_info exp.exp_loc.Location.loc_start in
   Lprim(Praise Raise_regular, [event_after exp
-    (Lprim(Pmakeblock(0, Immutable),
+    (Lprim(pmakeblock 0 Immutable exp.exp_loc,
           [transl_path Predef.path_assert_failure;
            Lconst(Const_block(0,
               [Const_base(Const_string (fname, None));
@@ -705,9 +712,9 @@ and transl_exp0 e =
       end
   | Texp_apply(funct, oargs) ->
       event_after e (transl_apply (transl_exp funct) oargs e.exp_loc)
-  | Texp_match({exp_desc = Texp_tuple argl}, pat_expr_list, partial) ->
+  | Texp_match({exp_desc = Texp_tuple argl; exp_loc = tuple_loc}, pat_expr_list, partial) ->
       Matching.for_multiple_match e.exp_loc
-        (transl_list argl) (transl_cases pat_expr_list) partial
+        (transl_list argl) (transl_cases pat_expr_list) partial tuple_loc
   | Texp_match(arg, pat_expr_list, partial) ->
       Matching.for_function e.exp_loc None
         (transl_exp arg) (transl_cases pat_expr_list) partial
@@ -720,7 +727,7 @@ and transl_exp0 e =
       begin try
         Lconst(Const_block(0, List.map extract_constant ll))
       with Not_constant ->
-        Lprim(Pmakeblock(0, Immutable), ll)
+        Lprim(pmakeblock 0 Immutable e.exp_loc, ll)
       end
   | Texp_construct(_, cstr, args) ->
       let ll = transl_list args in
@@ -731,12 +738,12 @@ and transl_exp0 e =
           begin try
             Lconst(Const_block(n, List.map extract_constant ll))
           with Not_constant ->
-            Lprim(Pmakeblock(n, Immutable), ll)
+            Lprim(pmakeblock n Immutable e.exp_loc, ll)
           end
       | Cstr_exception (path, _) ->
           let slot = transl_path path in
           if cstr.cstr_arity = 0 then slot
-          else Lprim(Pmakeblock(0, Immutable), slot :: ll)
+          else Lprim(pmakeblock 0 Immutable e.exp_loc, slot :: ll)
       end
   | Texp_variant(l, arg) ->
       let tag = Btype.hash_variant l in
@@ -748,11 +755,12 @@ and transl_exp0 e =
             Lconst(Const_block(0, [Const_base(Const_int tag);
                                    extract_constant lam]))
           with Not_constant ->
-            Lprim(Pmakeblock(0, Immutable),
+            Lprim(pmakeblock 0 Immutable e.exp_loc,
                   [Lconst(Const_base(Const_int tag)); lam])
       end
   | Texp_record ((_, lbl1, _) :: _ as lbl_expr_list, opt_init_expr) ->
-      transl_record lbl1.lbl_all lbl1.lbl_repres lbl_expr_list opt_init_expr
+      let loc = if !Clflags.debug then e.exp_loc else Location.none in
+      transl_record lbl1.lbl_all lbl1.lbl_repres lbl_expr_list opt_init_expr loc
   | Texp_record ([], _) ->
       fatal_error "Translcore.transl_exp: bad Texp_record"
   | Texp_field(arg, _, lbl) ->
@@ -784,7 +792,8 @@ and transl_exp0 e =
               raise Not_constant in             (* can this really happen? *)
         Lprim(Pccall prim_obj_dup, [master])
       with Not_constant ->
-        Lprim(Pmakearray kind, ll)
+        let loc = if !Clflags.debug then e.exp_loc else Location.none in
+        Lprim(Pmakearray (kind, loc), ll)
       end
   | Texp_ifthenelse(cond, ifso, Some ifnot) ->
       Lifthenelse(transl_exp cond,
@@ -839,55 +848,55 @@ and transl_exp0 e =
       if !Clflags.noassert
       then lambda_unit
       else Lifthenelse (transl_exp cond, lambda_unit, assert_failed e)
-  | Texp_lazy e ->
+  | Texp_lazy e' ->
       (* when e needs no computation (constants, identifiers, ...), we
          optimize the translation just as Lazy.lazy_from_val would
          do *)
-      begin match e.exp_desc with
+      begin match e'.exp_desc with
         (* a constant expr of type <> float gets compiled as itself *)
       | Texp_constant
           ( Const_int _ | Const_char _ | Const_string _
           | Const_int32 _ | Const_int64 _ | Const_nativeint _ )
       | Texp_function(_, _, _)
       | Texp_construct (_, {cstr_arity = 0}, _)
-        -> transl_exp e
+        -> transl_exp e'
       | Texp_constant(Const_float _) ->
-          Lprim(Pmakeblock(Obj.forward_tag, Immutable), [transl_exp e])
+          Lprim(pmakeblock Obj.forward_tag Immutable e.exp_loc, [transl_exp e'])
       | Texp_ident(_, _, _) -> (* according to the type *)
-          begin match e.exp_type.desc with
+          begin match e'.exp_type.desc with
           (* the following may represent a float/forward/lazy: need a
              forward_tag *)
           | Tvar _ | Tlink _ | Tsubst _ | Tunivar _
           | Tpoly(_,_) | Tfield(_,_,_,_) ->
-              Lprim(Pmakeblock(Obj.forward_tag, Immutable), [transl_exp e])
+              Lprim(pmakeblock Obj.forward_tag Immutable e.exp_loc, [transl_exp e'])
           (* the following cannot be represented as float/forward/lazy:
              optimize *)
           | Tarrow(_,_,_,_) | Ttuple _ | Tpackage _ | Tobject(_,_) | Tnil
           | Tvariant _
-              -> transl_exp e
+              -> transl_exp e'
           (* optimize predefined types (excepted float) *)
           | Tconstr(_,_,_) ->
-              if has_base_type e Predef.path_int
-                || has_base_type e Predef.path_char
-                || has_base_type e Predef.path_string
-                || has_base_type e Predef.path_bool
-                || has_base_type e Predef.path_unit
-                || has_base_type e Predef.path_exn
-                || has_base_type e Predef.path_array
-                || has_base_type e Predef.path_list
-                || has_base_type e Predef.path_format6
-                || has_base_type e Predef.path_option
-                || has_base_type e Predef.path_nativeint
-                || has_base_type e Predef.path_int32
-                || has_base_type e Predef.path_int64
-              then transl_exp e
+              if has_base_type e' Predef.path_int
+                || has_base_type e' Predef.path_char
+                || has_base_type e' Predef.path_string
+                || has_base_type e' Predef.path_bool
+                || has_base_type e' Predef.path_unit
+                || has_base_type e' Predef.path_exn
+                || has_base_type e' Predef.path_array
+                || has_base_type e' Predef.path_list
+                || has_base_type e' Predef.path_format6
+                || has_base_type e' Predef.path_option
+                || has_base_type e' Predef.path_nativeint
+                || has_base_type e' Predef.path_int32
+                || has_base_type e' Predef.path_int64
+              then transl_exp e'
               else
-                Lprim(Pmakeblock(Obj.forward_tag, Immutable), [transl_exp e])
+                Lprim(pmakeblock Obj.forward_tag Immutable e.exp_loc, [transl_exp e'])
           end
       (* other cases compile to a lazy block holding a function *)
       | _ ->
-          let fn = Lfunction (Curried, [Ident.create "param"], transl_exp e) in
-          Lprim(Pmakeblock(Config.lazy_tag, Immutable), [fn])
+          let fn = Lfunction (Curried, [Ident.create "param"], transl_exp e') in
+          Lprim(pmakeblock Config.lazy_tag Immutable e.exp_loc, [fn])
       end
   | Texp_object (cs, meths) ->
       let cty = cs.cstr_type in
@@ -1046,7 +1055,7 @@ and transl_setinstvar self var expr =
   Lprim(Parraysetu (if maybe_pointer expr then Paddrarray else Pintarray),
                     [self; transl_path var; transl_exp expr])
 
-and transl_record all_labels repres lbl_expr_list opt_init_expr =
+and transl_record all_labels repres lbl_expr_list opt_init_expr loc =
   let size = Array.length all_labels in
   (* Determine if there are "enough" new fields *)
   if 3 + 2 * List.length lbl_expr_list >= size
@@ -1084,8 +1093,8 @@ and transl_record all_labels repres lbl_expr_list opt_init_expr =
             Lconst(Const_float_array(List.map extract_float cl))
       with Not_constant ->
         match repres with
-          Record_regular -> Lprim(Pmakeblock(0, mut), ll)
-        | Record_float -> Lprim(Pmakearray Pfloatarray, ll) in
+          Record_regular -> Lprim(pmakeblock 0 mut loc, ll)
+        | Record_float -> Lprim(Pmakearray (Pfloatarray, loc), ll) in
     begin match opt_init_expr with
       None -> lam
     | Some init_expr -> Llet(Strict, init_id, transl_exp init_expr, lam)
@@ -1106,7 +1115,7 @@ and transl_record all_labels repres lbl_expr_list opt_init_expr =
       None -> assert false
     | Some init_expr ->
         Llet(Strict, copy_id,
-             Lprim(Pduprecord (repres, size), [transl_exp init_expr]),
+             Lprim(Pduprecord (repres, size, loc), [transl_exp init_expr]),
              List.fold_right update_field lbl_expr_list (Lvar copy_id))
     end
   end

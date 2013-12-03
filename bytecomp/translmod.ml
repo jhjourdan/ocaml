@@ -44,7 +44,7 @@ let transl_exception path decl =
     | Some p -> Path.name p
   in
   Lprim(prim_set_oo_id,
-        [Lprim(Pmakeblock(Obj.object_tag, Immutable),
+        [Lprim(Pmakeblock(Obj.object_tag, Immutable, Location.none),
               [Lconst(Const_base(Const_string (name,None)));
                Lconst(Const_base(Const_int 0))])])
 
@@ -56,7 +56,7 @@ let rec apply_coercion restr arg =
       arg
   | Tcoerce_structure pos_cc_list ->
       name_lambda arg (fun id ->
-        Lprim(Pmakeblock(0, Immutable),
+        Lprim(Pmakeblock(0, Immutable, Location.none),
               List.map (apply_coercion_field id) pos_cc_list))
   | Tcoerce_functor(cc_arg, cc_res) ->
       let param = Ident.create "funarg" in
@@ -301,11 +301,11 @@ and transl_structure fields cc rootpath = function
     [] ->
       begin match cc with
         Tcoerce_none ->
-          Lprim(Pmakeblock(0, Immutable),
+          Lprim(Pmakeblock(0, Immutable, Location.none),
                 List.map (fun id -> Lvar id) (List.rev fields))
       | Tcoerce_structure pos_cc_list ->
           let v = Array.of_list (List.rev fields) in
-          Lprim(Pmakeblock(0, Immutable),
+          Lprim(Pmakeblock(0, Immutable, Location.none),
                 List.map
                   (fun (pos, cc) ->
                     match cc with
@@ -520,7 +520,7 @@ let transl_store_structure glob map prims str =
     Lsequence(lam,
               Llet(Strict, id,
                    subst_lambda subst
-                   (Lprim(Pmakeblock(0, Immutable),
+                   (Lprim(Pmakeblock(0, Immutable, Location.none),
                           List.map (fun id -> Lvar id)
                                    (defined_idents str.str_items))),
                    Lsequence(store_ident id,
@@ -792,7 +792,7 @@ let transl_package component_names target_name coercion =
           pos_cc_list
     | _ ->
         assert false in
-  Lprim(Psetglobal target_name, [Lprim(Pmakeblock(0, Immutable), components)])
+  Lprim(Psetglobal target_name, [Lprim(Pmakeblock(0, Immutable, Location.none), components)])
 
 let transl_store_package component_names target_name coercion =
   let rec make_sequence fn pos arg =

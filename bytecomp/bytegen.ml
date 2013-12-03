@@ -141,7 +141,7 @@ let rec check_recordwith_updates id e =
 let rec size_of_lambda = function
   | Lfunction(kind, params, body) as funct ->
       RHS_block (1 + IdentSet.cardinal(free_variables funct))
-  | Llet (Strict, id, Lprim (Pduprecord (kind, size), _), body)
+  | Llet (Strict, id, Lprim (Pduprecord (kind, size, _), _), body)
     when check_recordwith_updates id body ->
       begin match kind with
       | Record_regular -> RHS_block size
@@ -149,13 +149,13 @@ let rec size_of_lambda = function
       end
   | Llet(str, id, arg, body) -> size_of_lambda body
   | Lletrec(bindings, body) -> size_of_lambda body
-  | Lprim(Pmakeblock(tag, mut), args) -> RHS_block (List.length args)
-  | Lprim (Pmakearray (Paddrarray|Pintarray), args) ->
+  | Lprim(Pmakeblock(tag, mut, _), args) -> RHS_block (List.length args)
+  | Lprim (Pmakearray ((Paddrarray|Pintarray), _), args) ->
       RHS_block (List.length args)
-  | Lprim (Pmakearray Pfloatarray, args) -> RHS_floatblock (List.length args)
-  | Lprim (Pmakearray Pgenarray, args) -> assert false
-  | Lprim (Pduprecord (Record_regular, size), args) -> RHS_block size
-  | Lprim (Pduprecord (Record_float, size), args) -> RHS_floatblock size
+  | Lprim (Pmakearray (Pfloatarray, _), args) -> RHS_floatblock (List.length args)
+  | Lprim (Pmakearray (Pgenarray, _), args) -> assert false
+  | Lprim (Pduprecord (Record_regular, size, _), args) -> RHS_block size
+  | Lprim (Pduprecord (Record_float, size, _), args) -> RHS_floatblock size
   | Levent (lam, _) -> size_of_lambda lam
   | Lsequence (lam, lam') -> size_of_lambda lam'
   | _ -> RHS_nonrec
@@ -290,7 +290,7 @@ let comp_primitive p args =
     Pgetglobal id -> Kgetglobal id
   | Psetglobal id -> Ksetglobal id
   | Pintcomp cmp -> Kintcomp cmp
-  | Pmakeblock(tag, mut) -> Kmakeblock(List.length args, tag)
+  | Pmakeblock(tag, mut, _) -> Kmakeblock(List.length args, tag)
   | Pfield n -> Kgetfield n
   | Psetfield(n, ptr) -> Ksetfield n
   | Pfloatfield n -> Kgetfloatfield n
@@ -598,7 +598,7 @@ let rec comp_expr env exp sz cont =
         (Kpush::
          Kconst (Const_base (Const_int n))::
          Kaddint::cont)
-  | Lprim(Pmakearray kind, args) ->
+  | Lprim(Pmakearray (kind, _), args) ->
       begin match kind with
         Pintarray | Paddrarray ->
           comp_args env args sz (Kmakeblock(List.length args, 0) :: cont)

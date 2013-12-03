@@ -65,11 +65,4 @@ CAMLextern char *caml_read_debug_info_error;
 value caml_read_debug_info(void);
 #endif
 
-#ifdef NATIVE_CODE
-typedef struct {
-  uintnat whsize;
-  uint32 loc1, loc2;
-} alloc_descr;
-#endif
-
 #endif /* CAML_BACKTRACE_H */

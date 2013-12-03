@@ -155,6 +155,7 @@ let debuginfo_op = function
   | Cextcall(_, _, _, dbg) -> dbg
   | Craise (_, dbg) -> dbg
   | Ccheckbound dbg -> dbg
+  | Calloc dbg -> dbg
   | _ -> Debuginfo.none
 
 (* Registers for catch constructs *)

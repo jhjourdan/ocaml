@@ -119,8 +119,13 @@ void caml_init_frame_descriptors(void)
          sizeof(short) * d->num_live + sizeof(frame_descr *) - 1)
         & -sizeof(frame_descr *);
       if ((d->frame_size & 3) == 1) nextd += 8;
-      if ((d->frame_size & 3) == 2)
-        nextd += sizeof(uintnat) + (*(uintnat*)nextd) * (sizeof(uintnat)+8);
+      else if ((d->frame_size & 2) == 2) {
+        unsigned short num_blocks = (*(unsigned short*)nextd);
+        nextd += sizeof(short) + num_blocks * sizeof(short);
+        nextd = (nextd + sizeof(frame_descr *) - 1) & -sizeof(frame_descr *);
+        if ((d->frame_size & 3) == 3)
+          nextd += 8 * num_blocks;
+      }
       d = (frame_descr *) nextd;
     }
   }
