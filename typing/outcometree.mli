@@ -75,9 +75,10 @@ and out_class_sig_item =
 
 type out_module_type =
   | Omty_abstract
-  | Omty_functor of string * out_module_type * out_module_type
+  | Omty_functor of string * out_module_type option * out_module_type
   | Omty_ident of out_ident
   | Omty_signature of out_sig_item list
+  | Omty_alias of out_ident
 and out_sig_item =
   | Osig_class of
       bool * string * (string * (bool * bool)) list * out_class_type *

@@ -423,10 +423,11 @@ module MakeMap(Map : MapArgument) = struct
     let mty = Map.enter_module_type mty in
     let mty_desc =
       match mty.mty_desc with
-          Tmty_ident (path, lid) -> mty.mty_desc
+          Tmty_ident _ -> mty.mty_desc
+        | Tmty_alias _ -> mty.mty_desc
         | Tmty_signature sg -> Tmty_signature (map_signature sg)
         | Tmty_functor (id, name, mtype1, mtype2) ->
-          Tmty_functor (id, name, map_module_type mtype1,
+          Tmty_functor (id, name, Misc.may_map map_module_type mtype1,
                         map_module_type mtype2)
         | Tmty_with (mtype, list) ->
           Tmty_with (map_module_type mtype,
@@ -456,7 +457,7 @@ module MakeMap(Map : MapArgument) = struct
           Tmod_ident (p, lid) -> mexpr.mod_desc
         | Tmod_structure st -> Tmod_structure (map_structure st)
         | Tmod_functor (id, name, mtype, mexpr) ->
-          Tmod_functor (id, name, map_module_type mtype,
+          Tmod_functor (id, name, Misc.may_map map_module_type mtype,
                         map_module_expr mexpr)
         | Tmod_apply (mexp1, mexp2, coercion) ->
           Tmod_apply (map_module_expr mexp1, map_module_expr mexp2, coercion)

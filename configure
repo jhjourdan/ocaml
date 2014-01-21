@@ -309,7 +309,7 @@ dllccompopts=""
 ostype="Unix"
 exe=""
 iflexdir=""
-SO=".so"
+SO="so"
 TOOLCHAIN="cc"
 
 case "$bytecc,$target" in
@@ -381,6 +381,10 @@ case "$bytecc,$target" in
         mkexedebugflag="-link -g"
       fi
     fi
+    if test $with_sharedlibs = no; then
+      mkexe="$mkexe -Wl,--stack,16777216"
+      bytecclinkopts="-Wl,--stack,16777216"
+    fi
     exe=".exe"
     ostype="Cygwin";;
   *gcc*,*-*-mingw*)
@@ -405,7 +409,7 @@ case "$bytecc,$target" in
     exe=".exe"
     ostype="Win32"
     TOOLCHAIN="mingw"
-    SO=".dll"
+    SO="dll"
     ;;
   *gcc*,x86_64-*-linux*)
     bytecccompopts="-fno-defer-pop $gcc_warnings"
@@ -858,6 +862,7 @@ case "$target" in
   x86_64-*-darwin*)             arch=amd64; system=macosx;;
   x86_64-*-mingw*)              arch=amd64; system=mingw;;
   aarch64-*-linux*)             arch=arm64; system=linux;;
+  x86_64-*-cygwin*)             arch=amd64; system=cygwin;;
 esac
 
 # Some platforms exist both in 32-bit and 64-bit variants, not distinguished
@@ -1691,7 +1696,7 @@ echo "SO=$SO" >> Makefile
 echo "EXT_OBJ=.o" >> Makefile
 echo "EXT_ASM=.s" >> Makefile
 echo "EXT_LIB=.a" >> Makefile
-echo "EXT_DLL=$SO" >> Makefile
+echo "EXT_DLL=.$SO" >> Makefile
 echo "EXTRALIBS=" >> Makefile
 echo "CCOMPTYPE=cc" >> Makefile
 echo "TOOLCHAIN=$TOOLCHAIN" >> Makefile

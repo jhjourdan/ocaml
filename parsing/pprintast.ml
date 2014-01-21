@@ -680,8 +680,8 @@ class printer  ()= object(self:'self)
         pp f fmt self#expression e1 self#expression e2
     | Pexp_for (s, e1, e2, df, e3) ->
         let fmt:(_,_,_)format =
-          "@[<hv0>@[<hv2>@[<2>for %s =@;%a@;%a%a@;do@]@;%a@]@;done@]" in
-        pp f fmt s.txt self#expression e1 self#direction_flag df self#expression e2  self#expression e3
+          "@[<hv0>@[<hv2>@[<2>for %a =@;%a@;%a%a@;do@]@;%a@]@;done@]" in
+        pp f fmt self#pattern s self#expression e1 self#direction_flag df self#expression e2  self#expression e3
     | _ ->  self#paren true self#expression f x
 
   method attributes f l =
@@ -831,10 +831,14 @@ class printer  ()= object(self:'self)
     match x.pmty_desc with
     | Pmty_ident li ->
         pp f "%a" self#longident_loc li;
+    | Pmty_alias li ->
+        pp f "(module %a)" self#longident_loc li;
     | Pmty_signature (s) ->
         pp f "@[<hv0>@[<hv2>sig@ %a@]@ end@]" (* "@[<hov>sig@ %a@ end@]" *)
           (self#list self#signature_item  ) s (* FIXME wrong indentation*)
-    | Pmty_functor (s, mt1, mt2) ->
+    | Pmty_functor (_, None, mt2) ->
+        pp f "@[<hov2>functor () ->@ %a@]" self#module_type mt2 
+    | Pmty_functor (s, Some mt1, mt2) ->
         pp f "@[<hov2>functor@ (%s@ :@ %a)@ ->@ %a@]" s.txt
           self#module_type mt1  self#module_type mt2
     | Pmty_with (mt, l) ->
@@ -873,7 +877,8 @@ class printer  ()= object(self:'self)
         pp f "@[<2>%a@]"
           (fun f vd ->
             let intro = if vd.pval_prim = [] then "val" else "external" in
-            if (is_infix (fixity_of_string vd.pval_name.txt)) || List.mem vd.pval_name.txt.[0] prefix_symbols then
+            if (is_infix (fixity_of_string vd.pval_name.txt))
+            || List.mem vd.pval_name.txt.[0] prefix_symbols then
               pp f "%s@ (@ %s@ )@ :@ " intro vd.pval_name.txt
             else
               pp f "%s@ %s@ :@ " intro vd.pval_name.txt;
@@ -891,8 +896,13 @@ class printer  ()= object(self:'self)
           (fun f l ->  match l with
             |[]  ->()
             |[x] -> pp f "@[<2>class %a@]" class_description x
-            |_ -> self#list ~first:"@[<v0>class @[<2>" ~sep:"@]@;and @[" ~last:"@]@]"
-                  class_description f l) l
+            |_ ->
+                self#list ~first:"@[<v0>class @[<2>" ~sep:"@]@;and @["
+                  ~last:"@]@]" class_description f l)
+          l
+    | Psig_module {pmd_name; pmd_type={pmty_desc=Pmty_alias alias}} ->
+        pp f "@[<hov>module@ %s@ =@ %a@]"
+          pmd_name.txt self#longident_loc alias
     | Psig_module pmd ->
         pp f "@[<hov>module@ %s@ :@ %a@]"
           pmd.pmd_name.txt
@@ -940,7 +950,9 @@ class printer  ()= object(self:'self)
           self#module_type mt
     | Pmod_ident (li) ->
         pp f "%a" self#longident_loc li;
-    | Pmod_functor (s, mt, me) ->
+    | Pmod_functor (_, None, me) ->
+        pp f "functor ()@;->@;%a" self#module_expr me
+    | Pmod_functor (s, Some mt, me) ->
         pp f "functor@ (%s@ :@ %a)@;->@;%a"
           s.txt  self#module_type mt  self#module_expr me
     | Pmod_apply (me1, me2) ->
@@ -1025,7 +1037,8 @@ class printer  ()= object(self:'self)
     | Pstr_module x ->
         let rec module_helper me = match me.pmod_desc with
         | Pmod_functor(s,mt,me) ->
-            pp f "(%s:%a)"  s.txt  self#module_type mt ;
+            if mt = None then pp f "()"
+            else Misc.may (pp f "(%s:%a)" s.txt self#module_type) mt;
             module_helper me
         | _ -> me in
         pp f "@[<hov2>module %s%a@]"

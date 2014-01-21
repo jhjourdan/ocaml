@@ -64,6 +64,7 @@ type error =
   | Unexpected_existential
   | Unqualified_gadt_pattern of Path.t * string
   | Invalid_interval
+  | Invalid_for_loop_index
   | Extension of string
 
 exception Error of Location.t * Env.t * error
@@ -562,7 +563,9 @@ let rec expand_path env p =
         {desc=Tconstr(p,_,_)} -> expand_path env p
       | _ -> assert false
       end
-  | _ -> p
+  | _ ->
+      let p' = Env.normalize_path None env p in
+      if Path.same p p' then p else expand_path env p'
 
 let compare_type_path env tpath1 tpath2 =
   Path.same (expand_path env tpath1) (expand_path env tpath2)
@@ -1421,7 +1424,8 @@ and is_nonexpansive_mod mexp =
           | Tstr_open _ | Tstr_class_type _ | Tstr_exn_rebind _ -> true
           | Tstr_value (_, pat_exp_list) ->
               List.for_all (fun vb -> is_nonexpansive vb.vb_expr) pat_exp_list
-          | Tstr_module {mb_expr=m;_} | Tstr_include (m, _, _) -> is_nonexpansive_mod m
+          | Tstr_module {mb_expr=m;_}
+          | Tstr_include (m, _, _) -> is_nonexpansive_mod m
           | Tstr_recmodule id_mod_list ->
               List.for_all (fun {mb_expr=m;_} -> is_nonexpansive_mod m)
                 id_mod_list
@@ -1942,6 +1946,10 @@ and type_expect_ ?in_function env sexp ty_expected =
                 Texp_ident(path, lid, desc)
             | Val_unbound ->
                 raise(Error(loc, env, Masked_instance_variable lid.txt))
+            (*| Val_prim _ ->
+                let p = Env.normalize_path (Some loc) env path in
+                Env.add_required_global (Path.head p);
+                Texp_ident(path, lid, desc)*)
             | _ ->
                 Texp_ident(path, lid, desc)
           end;
@@ -2317,11 +2325,16 @@ and type_expect_ ?in_function env sexp ty_expected =
   | Pexp_for(param, slow, shigh, dir, sbody) ->
       let low = type_expect env slow Predef.type_int in
       let high = type_expect env shigh Predef.type_int in
-      let (id, new_env) =
-        Env.enter_value param.txt {val_type = instance_def Predef.type_int;
-          val_attributes = [];
-          val_kind = Val_reg; Types.val_loc = loc; } env
-          ~check:(fun s -> Warnings.Unused_for_index s)
+      let id, new_env =
+        match param.ppat_desc with
+        | Ppat_any -> Ident.create "_for", env
+        | Ppat_var {txt} ->
+            Env.enter_value txt {val_type = instance_def Predef.type_int;
+                                 val_attributes = [];
+                                 val_kind = Val_reg; Types.val_loc = loc; } env
+              ~check:(fun s -> Warnings.Unused_for_index s)
+        | _ ->
+            raise (Error (param.ppat_loc, env, Invalid_for_loop_index))
       in
       let body = type_statement new_env sbody in
       rue {
@@ -3820,6 +3833,8 @@ let report_error env ppf = function
         "must be qualified in this pattern"
   | Invalid_interval ->
       fprintf ppf "@[Only character intervals are supported in patterns.@]"
+  | Invalid_for_loop_index ->
+      fprintf ppf "@[Invalid for-loop index: only variables and _ are allowed.@]"
   | Extension s ->
       fprintf ppf "Uninterpreted extension '%s'." s
 

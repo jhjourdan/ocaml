@@ -100,7 +100,7 @@ module Exp:
     val ifthenelse: ?loc:loc -> ?attrs:attrs -> expression -> expression -> expression option -> expression
     val sequence: ?loc:loc -> ?attrs:attrs -> expression -> expression -> expression
     val while_: ?loc:loc -> ?attrs:attrs -> expression -> expression -> expression
-    val for_: ?loc:loc -> ?attrs:attrs -> str -> expression -> expression -> direction_flag -> expression -> expression
+    val for_: ?loc:loc -> ?attrs:attrs -> pattern -> expression -> expression -> direction_flag -> expression -> expression
     val coerce: ?loc:loc -> ?attrs:attrs -> expression -> core_type option -> core_type -> expression
     val constraint_: ?loc:loc -> ?attrs:attrs -> expression -> core_type -> expression
     val send: ?loc:loc -> ?attrs:attrs -> expression -> string -> expression
@@ -144,8 +144,10 @@ module Mty:
     val attr: module_type -> attribute -> module_type
 
     val ident: ?loc:loc -> ?attrs:attrs -> lid -> module_type
+    val alias: ?loc:loc -> ?attrs:attrs -> lid -> module_type
     val signature: ?loc:loc -> ?attrs:attrs -> signature -> module_type
-    val functor_: ?loc:loc -> ?attrs:attrs -> str -> module_type -> module_type -> module_type
+    val functor_: ?loc:loc -> ?attrs:attrs ->
+      str -> module_type option -> module_type -> module_type
     val with_: ?loc:loc -> ?attrs:attrs -> module_type -> with_constraint list -> module_type
     val typeof_: ?loc:loc -> ?attrs:attrs -> module_expr -> module_type
     val extension: ?loc:loc -> ?attrs:attrs -> extension -> module_type
@@ -159,7 +161,8 @@ module Mod:
 
     val ident: ?loc:loc -> ?attrs:attrs -> lid -> module_expr
     val structure: ?loc:loc -> ?attrs:attrs -> structure -> module_expr
-    val functor_: ?loc:loc -> ?attrs:attrs -> str -> module_type -> module_expr -> module_expr
+    val functor_: ?loc:loc -> ?attrs:attrs ->
+      str -> module_type option -> module_expr -> module_expr
     val apply: ?loc:loc -> ?attrs:attrs -> module_expr -> module_expr -> module_expr
     val constraint_: ?loc:loc -> ?attrs:attrs -> module_expr -> module_type -> module_expr
     val unpack: ?loc:loc -> ?attrs:attrs -> expression -> module_expr

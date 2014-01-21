@@ -146,12 +146,27 @@ CAMLprim value caml_array_unsafe_set(value array, value index, value newval)
 
 CAMLprim value caml_make_float_vect(value len)
 {
-  mlsize_t wsize = Long_val(len) * Double_wosize;
-  if (wsize == 0)
+  mlsize_t wosize = Long_val(len) * Double_wosize;
+  value result;
+  if (wosize == 0)
     return Atom(0);
-  if (wsize > Max_wosize)
-    caml_invalid_argument("Array.make");
-  return caml_alloc(wsize, Double_array_tag);
+  else if (wosize <= Max_young_wosize){
+#define Setup_for_gc
+#define Restore_after_gc
+#define Setup_for_event
+#define Restore_after_event
+    Alloc_small (result, wosize, Double_array_tag);
+#undef Setup_for_gc
+#undef Restore_after_gc
+#undef Setup_for_event
+#undef Restore_after_event
+  }else if (wosize > Max_wosize)
+    caml_invalid_argument("Array.make_float");
+  else {
+    result = caml_alloc_shr (wosize, Double_array_tag);
+    result = caml_check_urgent_gc (result);
+  }
+  return result;
 }
 
 CAMLprim value caml_make_vect(value len, value init)

@@ -244,7 +244,7 @@ and expression_desc =
   | Pexp_while of expression * expression
         (* while E1 do E2 done *)
   | Pexp_for of
-      string loc *  expression * expression * direction_flag * expression
+      pattern *  expression * expression * direction_flag * expression
         (* for i = E1 to E2 do E3 done      (flag = Upto)
            for i = E1 downto E2 do E3 done  (flag = Downto)
          *)
@@ -543,7 +543,7 @@ and module_type_desc =
         (* S *)
   | Pmty_signature of signature
         (* sig ... end *)
-  | Pmty_functor of string loc * module_type * module_type
+  | Pmty_functor of string loc * module_type option * module_type
         (* functor(X : MT1) -> MT2 *)
   | Pmty_with of module_type * with_constraint list
         (* MT with ... *)
@@ -551,6 +551,8 @@ and module_type_desc =
         (* module type of ME *)
   | Pmty_extension of extension
         (* [%id] *)
+  | Pmty_alias of Longident.t loc
+        (* (module M) *)
 
 and signature = signature_item list
 
@@ -637,7 +639,7 @@ and module_expr_desc =
         (* X *)
   | Pmod_structure of structure
         (* struct ... end *)
-  | Pmod_functor of string loc * module_type * module_expr
+  | Pmod_functor of string loc * module_type option * module_expr
         (* functor(X : MT1) -> ME *)
   | Pmod_apply of module_expr * module_expr
         (* ME1(ME2) *)

@@ -166,10 +166,11 @@ let find_value env loc lid =
 
 let find_module env loc lid =
   let (path, decl) as r =
-    find_component Env.lookup_module (fun lid -> Unbound_module lid) env loc lid
+    find_component (fun lid env -> (Env.lookup_module lid env, ()))
+      (fun lid -> Unbound_module lid) env loc lid
   in
-  check_deprecated loc decl.md_attributes (Path.name path);
-  r
+  (* check_deprecated loc decl.md_attributes (Path.name path); *)
+  path
 
 let find_modtype env loc lid =
   let (path, decl) as r =
@@ -220,7 +221,8 @@ let create_package_mty fake loc env (p, l) =
                ptype_manifest = if fake then None else Some t;
                ptype_attributes = [];
                ptype_loc = loc} in
-      Ast_helper.Mty.mk ~loc (Pmty_with (mty, [ Pwith_type ({ txt = s.txt; loc }, d) ]))
+      Ast_helper.Mty.mk ~loc
+        (Pmty_with (mty, [ Pwith_type ({ txt = s.txt; loc }, d) ]))
     )
     (Ast_helper.Mty.mk ~loc (Pmty_ident p))
     l

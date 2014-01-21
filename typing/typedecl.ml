@@ -573,7 +573,13 @@ let compute_variance env visited vari ty =
               Rpresent (Some ty) ->
                 compute_same ty
             | Reither (_, tyl, _, _) ->
-                List.iter compute_same tyl
+                let open Variance in
+                let upper =
+                  List.fold_left (fun s f -> set f true s)
+                    null [May_pos; May_neg; May_weak]
+                in
+                let v = inter vari upper in
+                List.iter (compute_variance_rec v) tyl
             | _ -> ())
           row.row_fields;
         compute_same row.row_more
@@ -1129,7 +1135,8 @@ let transl_with_constraint env id row_path orig_decl sdecl =
   let decl =
     { type_params = params;
       type_arity = List.length params;
-      type_kind = if arity_ok then orig_decl.type_kind else Type_abstract;
+      type_kind =
+        if arity_ok && man <> None then orig_decl.type_kind else Type_abstract;
       type_private = priv;
       type_manifest = man;
       type_variance = [];

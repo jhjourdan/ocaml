@@ -222,10 +222,7 @@ module Analyser =
           let f {Types.cd_id=constructor_name;cd_args=type_expr_list;cd_res=ret_type} =
             let constructor_name = Ident.name constructor_name in
             let comment_opt =
-              try
-                match List.assoc constructor_name name_comment_list with
-                  None -> None
-                | Some d -> d.Odoc_types.i_desc
+              try List.assoc constructor_name name_comment_list 
               with Not_found -> None
             in
             {
@@ -241,10 +238,7 @@ module Analyser =
           let f {Types.ld_id=field_name;ld_mutable=mutable_flag;ld_type=type_expr} =
             let field_name = Ident.name field_name in
             let comment_opt =
-              try
-                match List.assoc field_name name_comment_list with
-                  None -> None
-                | Some d -> d.Odoc_types.i_desc
+              try List.assoc field_name name_comment_list
               with Not_found -> None
             in
             {
@@ -876,6 +870,8 @@ module Analyser =
             let rec f = function
                 Parsetree.Pmty_ident longident ->
                   Name.from_longident longident.txt
+              | Parsetree.Pmty_alias longident ->
+                  Name.from_longident longident.txt
               | Parsetree.Pmty_signature _ ->
                   "??"
               | Parsetree.Pmty_functor _ ->
@@ -1066,6 +1062,16 @@ module Analyser =
           Module_type_alias { mta_name = Odoc_env.full_module_type_name env name ;
                               mta_module = None }
 
+      | Parsetree.Pmty_alias longident ->
+          let name =
+            match sig_module_type with
+              Types.Mty_alias path -> Name.from_path path
+            | _ -> Name.from_longident longident.txt
+          in
+          (* Wrong naming... *)
+          Module_type_alias { mta_name = Odoc_env.full_module_name env name ;
+                              mta_module = None }
+
       | Parsetree.Pmty_signature ast ->
           (
            let ast = filter_out_erased_items_from_signature erased ast in
@@ -1082,19 +1088,26 @@ module Analyser =
 
       | Parsetree.Pmty_functor (_, pmodule_type2, module_type2) ->
           (
-           let loc_start = pmodule_type2.Parsetree.pmty_loc.Location.loc_start.Lexing.pos_cnum in
-           let loc_end = pmodule_type2.Parsetree.pmty_loc.Location.loc_end.Lexing.pos_cnum in
+           let loc = match pmodule_type2 with None -> Location.none
+                     | Some pmty -> pmty.Parsetree.pmty_loc in
+           let loc_start = loc.Location.loc_start.Lexing.pos_cnum in
+           let loc_end = loc.Location.loc_end.Lexing.pos_cnum in
            let mp_type_code = get_string_of_file loc_start loc_end in
            print_DEBUG (Printf.sprintf "mp_type_code=%s" mp_type_code);
            match sig_module_type with
              Types.Mty_functor (ident, param_module_type, body_module_type) ->
-               let mp_kind = analyse_module_type_kind env
-                   current_module_name pmodule_type2 param_module_type
+               let mp_kind =
+                 match pmodule_type2, param_module_type with
+                   Some pmty, Some mty ->
+                     analyse_module_type_kind env current_module_name pmty mty
+                 | _ -> Module_type_struct []
                in
                let param =
                  {
                    mp_name = Name.from_ident ident ;
-                   mp_type = Odoc_env.subst_module_type env param_module_type ;
+                   mp_type =
+                    Misc.may_map (Odoc_env.subst_module_type env)
+                      param_module_type;
                    mp_type_code = mp_type_code ;
                    mp_kind = mp_kind ;
                  }
@@ -1135,7 +1148,8 @@ module Analyser =
     and analyse_module_kind
         ?(erased = Name.Set.empty) env current_module_name module_type sig_module_type =
       match module_type.Parsetree.pmty_desc with
-        Parsetree.Pmty_ident longident ->
+        Parsetree.Pmty_ident longident
+      | Parsetree.Pmty_alias longident ->
           let k = analyse_module_type_kind env current_module_name module_type sig_module_type in
           Module_with ( k, "" )
 
@@ -1161,17 +1175,23 @@ module Analyser =
           (
            match sig_module_type with
              Types.Mty_functor (ident, param_module_type, body_module_type) ->
-               let loc_start = pmodule_type2.Parsetree.pmty_loc.Location.loc_start.Lexing.pos_cnum in
-               let loc_end = pmodule_type2.Parsetree.pmty_loc.Location.loc_end.Lexing.pos_cnum in
+               let loc = match pmodule_type2 with None -> Location.none
+                     | Some pmty -> pmty.Parsetree.pmty_loc in
+               let loc_start = loc.Location.loc_start.Lexing.pos_cnum in
+               let loc_end = loc.Location.loc_end.Lexing.pos_cnum in
                let mp_type_code = get_string_of_file loc_start loc_end in
                print_DEBUG (Printf.sprintf "mp_type_code=%s" mp_type_code);
-               let mp_kind = analyse_module_type_kind env
-                   current_module_name pmodule_type2 param_module_type
+               let mp_kind =
+                 match pmodule_type2, param_module_type with
+                   Some pmty, Some mty ->
+                     analyse_module_type_kind env current_module_name pmty mty
+                 | _ -> Module_type_struct []
                in
                let param =
                  {
                    mp_name = Name.from_ident ident ;
-                   mp_type = Odoc_env.subst_module_type env param_module_type ;
+                   mp_type = Misc.may_map
+                    (Odoc_env.subst_module_type env) param_module_type ;
                    mp_type_code = mp_type_code ;
                    mp_kind = mp_kind ;
                  }

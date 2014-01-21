@@ -199,9 +199,11 @@ and add_bindings recf bv pel =
 and add_modtype bv mty =
   match mty.pmty_desc with
     Pmty_ident l -> add bv l
+  | Pmty_alias l -> addmodule bv l
   | Pmty_signature s -> add_signature bv s
   | Pmty_functor(id, mty1, mty2) ->
-      add_modtype bv mty1; add_modtype (StringSet.add id.txt bv) mty2
+      Misc.may (add_modtype bv) mty1;
+      add_modtype (StringSet.add id.txt bv) mty2
   | Pmty_with(mty, cstrl) ->
       add_modtype bv mty;
       List.iter
@@ -258,7 +260,7 @@ and add_module bv modl =
     Pmod_ident l -> addmodule bv l
   | Pmod_structure s -> ignore (add_structure bv s)
   | Pmod_functor(id, mty, modl) ->
-      add_modtype bv mty;
+      Misc.may (add_modtype bv) mty;
       add_module (StringSet.add id.txt bv) modl
   | Pmod_apply(mod1, mod2) ->
       add_module bv mod1; add_module bv mod2

@@ -1379,7 +1379,7 @@ let expand_abbrev_gen kind find_type_expansion env ty =
           ty
       | None ->
           let (params, body, lv) =
-            try find_type_expansion level path env with Not_found ->
+            try find_type_expansion path env with Not_found ->
               raise Cannot_expand
           in
           (* prerr_endline
@@ -1405,10 +1405,9 @@ let expand_abbrev_gen kind find_type_expansion env ty =
   | _ ->
       assert false
 
-(* inside objects and variants we do not want to
-   use local constraints *)
+(* Expand respecting privacy *)
 let expand_abbrev ty =
-  expand_abbrev_gen Public (fun level -> Env.find_type_expansion ~level) ty
+  expand_abbrev_gen Public Env.find_type_expansion ty
 
 (* Expand once the head of a type *)
 let expand_head_once env ty =
@@ -1486,7 +1485,7 @@ let rec extract_concrete_typedecl env ty =
    the private abbreviation. *)
 
 let expand_abbrev_opt =
-  expand_abbrev_gen Private (fun level -> Env.find_type_expansion_opt)
+  expand_abbrev_gen Private Env.find_type_expansion_opt
 
 let try_expand_once_opt env ty =
   let ty = repr ty in
@@ -2169,6 +2168,19 @@ let order_type_pair t1 t2 =
 let add_type_equality t1 t2 =
   TypePairs.add unify_eq_set (order_type_pair t1 t2) ()
 
+let rec normalize_package_path env p =
+  let t =
+    try (Env.find_modtype p env).mtd_type
+    with Not_found -> None
+  in
+  match t with
+  | Some (Mty_ident p) -> normalize_package_path env p
+  | Some (Mty_signature _ | Mty_functor _ | Mty_alias _) | None -> p
+
+let eq_package_path env p1 p2 =
+  Path.same p1 p2 ||
+  Path.same (normalize_package_path env p1) (normalize_package_path env p2)
+
 let unify_eq env t1 t2 =
   t1 == t2 ||
   match !umode with
@@ -2398,7 +2410,7 @@ and unify3 env t1 t1' t2 t2' =
       | (Tpoly (t1, tl1), Tpoly (t2, tl2)) ->
           enter_poly !env univar_pairs t1 tl1 t2 tl2 (unify env)
       | (Tpackage (p1, n1, tl1), Tpackage (p2, n2, tl2)) when n1 = n2 ->
-          if Path.same p1 p2 then unify_list env tl1 tl2 else
+          if eq_package_path !env p1 p2 then unify_list env tl1 tl2 else
           if !umode = Expression then raise (Unify []) else begin
             List.iter (reify env) (tl1 @ tl2);
             if !generate_equations then List.iter2 (mcomp !env) tl1 tl2
@@ -2829,7 +2841,7 @@ let rec moregen inst_nongen type_pairs env t1 t2 =
                 when Path.same p1 p2 ->
               moregen_list inst_nongen type_pairs env tl1 tl2
           | (Tpackage (p1, n1, tl1), Tpackage (p2, n2, tl2))
-            when Path.same p1 p2 && n1 = n2 ->
+            when eq_package_path env p1 p2 && n1 = n2 ->
               moregen_list inst_nongen type_pairs env tl1 tl2
           | (Tvariant row1, Tvariant row2) ->
               moregen_row inst_nongen type_pairs env row1 row2
@@ -3097,7 +3109,7 @@ let rec eqtype rename type_pairs subst env t1 t2 =
                 when Path.same p1 p2 ->
               eqtype_list rename type_pairs subst env tl1 tl2
           | (Tpackage (p1, n1, tl1), Tpackage (p2, n2, tl2))
-            when Path.same p1 p2 && n1 = n2 ->
+            when eq_package_path env p1 p2 && n1 = n2 ->
               eqtype_list rename type_pairs subst env tl1 tl2
           | (Tvariant row1, Tvariant row2) ->
               eqtype_row rename type_pairs subst env row1 row2
@@ -3839,7 +3851,7 @@ let rec subtype_rec env trace t1 t2 cstrs =
           (trace, t1, t2, !univar_pairs)::cstrs
         end
     | (Tpackage (p1, nl1, tl1), Tpackage (p2, nl2, tl2))
-      when Path.same p1 p2 && included nl2 nl1 ->
+      when eq_package_path env p1 p2 && included nl2 nl1 ->
         List.map2 (fun t1 t2 -> (trace, t1, t2, !univar_pairs))
           (extract_assoc nl2 nl1 tl1) tl2
         @ cstrs

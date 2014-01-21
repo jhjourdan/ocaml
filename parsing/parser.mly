@@ -541,9 +541,13 @@ module_expr:
   | STRUCT structure error
       { unclosed "struct" 1 "end" 3 }
   | FUNCTOR LPAREN UIDENT COLON module_type RPAREN MINUSGREATER module_expr
-      { mkmod(Pmod_functor(mkrhs $3 3, $5, $8)) }
+      { mkmod(Pmod_functor(mkrhs $3 3, Some $5, $8)) }
+  | FUNCTOR LPAREN RPAREN MINUSGREATER module_expr
+      { mkmod(Pmod_functor(mkrhs "()" 3, None, $5)) }
   | module_expr LPAREN module_expr RPAREN
       { mkmod(Pmod_apply($1, $3)) }
+  | module_expr LPAREN RPAREN
+      { mkmod(Pmod_apply($1, mkmod (Pmod_structure []))) }
   | module_expr LPAREN module_expr error
       { unclosed "(" 2 ")" 4 }
   | LPAREN module_expr COLON module_type RPAREN
@@ -640,7 +644,9 @@ module_binding_body:
   | COLON module_type EQUAL module_expr
       { mkmod(Pmod_constraint($4, $2)) }
   | LPAREN UIDENT COLON module_type RPAREN module_binding_body
-      { mkmod(Pmod_functor(mkrhs $2 2, $4, $6)) }
+      { mkmod(Pmod_functor(mkrhs $2 2, Some $4, $6)) }
+  | LPAREN RPAREN module_binding_body
+      { mkmod(Pmod_functor(mkrhs "()" 1, None, $3)) }
 ;
 module_bindings:
     module_binding                        { [$1] }
@@ -662,11 +668,16 @@ module_type:
       { unclosed "sig" 1 "end" 3 }
   | FUNCTOR LPAREN UIDENT COLON module_type RPAREN MINUSGREATER module_type
       %prec below_WITH
-      { mkmty(Pmty_functor(mkrhs $3 3, $5, $8)) }
+      { mkmty(Pmty_functor(mkrhs $3 3, Some $5, $8)) }
+  | FUNCTOR LPAREN RPAREN MINUSGREATER module_type
+      %prec below_WITH
+      { mkmty(Pmty_functor(mkrhs "()" 2, None, $5)) }
   | module_type WITH with_constraints
       { mkmty(Pmty_with($1, List.rev $3)) }
   | MODULE TYPE OF module_expr %prec below_LBRACKETAT
       { mkmty(Pmty_typeof $4) }
+  | LPAREN MODULE mod_longident RPAREN
+      { mkmty (Pmty_alias (mkrhs $3 3)) }
   | LPAREN module_type RPAREN
       { $2 }
   | LPAREN module_type error
@@ -692,7 +703,8 @@ signature_item:
     VAL val_ident COLON core_type post_item_attributes
       { mksig(Psig_value
                 (Val.mk (mkrhs $2 2) $4 ~attrs:$5 ~loc:(symbol_rloc()))) }
-  | EXTERNAL val_ident COLON core_type EQUAL primitive_declaration post_item_attributes
+  | EXTERNAL val_ident COLON core_type EQUAL primitive_declaration
+    post_item_attributes
       { mksig(Psig_value
                 (Val.mk (mkrhs $2 2) $4 ~prim:$6 ~attrs:$7
                    ~loc:(symbol_rloc()))) }
@@ -702,6 +714,10 @@ signature_item:
       { mksig(Psig_exception $2) }
   | MODULE UIDENT module_declaration post_item_attributes
       { mksig(Psig_module (Md.mk (mkrhs $2 2) $3 ~attrs:$4)) }
+  | MODULE UIDENT EQUAL mod_longident post_item_attributes
+      { mksig(Psig_module (Md.mk (mkrhs $2 2)
+                             (Mty.alias ~loc:(rhs_loc 4) (mkrhs $4 4))
+                             ~attrs:$5)) }
   | MODULE REC module_rec_declarations
       { mksig(Psig_recmodule (List.rev $3)) }
   | MODULE TYPE ident post_item_attributes
@@ -724,7 +740,9 @@ module_declaration:
     COLON module_type
       { $2 }
   | LPAREN UIDENT COLON module_type RPAREN module_declaration
-      { mkmty(Pmty_functor(mkrhs $2 2, $4, $6)) }
+      { mkmty(Pmty_functor(mkrhs $2 2, Some $4, $6)) }
+  | LPAREN RPAREN module_declaration
+      { mkmty(Pmty_functor(mkrhs "()" 1, None, $3)) }
 ;
 module_rec_declarations:
     module_rec_declaration                              { [$1] }
@@ -1048,8 +1066,8 @@ expr:
       { mkexp_attrs (Pexp_ifthenelse($3, $5, None)) $2 }
   | WHILE ext_attributes seq_expr DO seq_expr DONE
       { mkexp_attrs (Pexp_while($3, $5)) $2 }
-  | FOR ext_attributes val_ident EQUAL seq_expr direction_flag seq_expr DO seq_expr DONE
-      { mkexp_attrs(Pexp_for(mkrhs $3 3, $5, $7, $6, $9)) $2 }
+  | FOR ext_attributes pattern EQUAL seq_expr direction_flag seq_expr DO seq_expr DONE
+      { mkexp_attrs(Pexp_for($3, $5, $7, $6, $9)) $2 }
   | expr COLONCOLON expr
       { mkexp_cons (rhs_loc 2) (ghexp(Pexp_tuple[$1;$3])) (symbol_rloc()) }
   | LPAREN COLONCOLON RPAREN LPAREN expr COMMA expr RPAREN
@@ -1248,6 +1266,8 @@ let_binding_:
         (ghpat(Ppat_constraint(mkpatvar $1 1, poly)), exp) }
   | pattern EQUAL seq_expr
       { ($1, $3) }
+  | simple_pattern_not_ident COLON core_type EQUAL seq_expr
+      { (ghpat(Ppat_constraint($1, $3)), $5) }
 ;
 fun_binding:
     strict_binding
@@ -1356,6 +1376,9 @@ pattern:
 simple_pattern:
     val_ident %prec below_EQUAL
       { mkpat(Ppat_var (mkrhs $1 1)) }
+  | simple_pattern_not_ident { $1 }
+;
+simple_pattern_not_ident:
   | UNDERSCORE
       { mkpat(Ppat_any) }
   | signed_constant

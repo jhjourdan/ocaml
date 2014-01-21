@@ -299,8 +299,9 @@ and expression i ppf x =
       line i ppf "Pexp_while\n";
       expression i ppf e1;
       expression i ppf e2;
-  | Pexp_for (s, e1, e2, df, e3) ->
-      line i ppf "Pexp_for %a %a\n" fmt_direction_flag df fmt_string_loc s;
+  | Pexp_for (p, e1, e2, df, e3) ->
+      line i ppf "Pexp_for %a\n" fmt_direction_flag df;
+      pattern i ppf p;
       expression i ppf e1;
       expression i ppf e2;
       expression i ppf e3;
@@ -571,12 +572,13 @@ and module_type i ppf x =
   let i = i+1 in
   match x.pmty_desc with
   | Pmty_ident li -> line i ppf "Pmty_ident %a\n" fmt_longident_loc li;
+  | Pmty_alias li -> line i ppf "Pmty_alias %a\n" fmt_longident_loc li;
   | Pmty_signature (s) ->
       line i ppf "Pmty_signature\n";
       signature i ppf s;
   | Pmty_functor (s, mt1, mt2) ->
       line i ppf "Pmty_functor %a\n" fmt_string_loc s;
-      module_type i ppf mt1;
+      Misc.may (module_type i ppf) mt1;
       module_type i ppf mt2;
   | Pmty_with (mt, l) ->
       line i ppf "Pmty_with\n";
@@ -670,7 +672,7 @@ and module_expr i ppf x =
       structure i ppf s;
   | Pmod_functor (s, mt, me) ->
       line i ppf "Pmod_functor %a\n" fmt_string_loc s;
-      module_type i ppf mt;
+      Misc.may (module_type i ppf) mt;
       module_expr i ppf me;
   | Pmod_apply (me1, me2) ->
       line i ppf "Pmod_apply\n";

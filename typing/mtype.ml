@@ -34,7 +34,8 @@ let rec strengthen env mty p =
   match scrape env mty with
     Mty_signature sg ->
       Mty_signature(strengthen_sig env sg p)
-  | Mty_functor(param, arg, res) when !Clflags.applicative_functors ->
+  | Mty_functor(param, arg, res)
+    when !Clflags.applicative_functors && Ident.name param <> "*" ->
       Mty_functor(param, arg, strengthen env res (Papply(p, Pident param)))
   | mty ->
       mty
@@ -85,6 +86,7 @@ and strengthen_sig env sg p =
 and strengthen_decl env md p =
   {md with md_type = strengthen env md.md_type p}
 
+let () = Env.strengthen := strengthen
 
 (* In nondep_supertype, env is only used for the type it assigns to id.
    Hence there is no need to keep env up-to-date by adding the bindings
@@ -100,13 +102,19 @@ let nondep_supertype env mid mty =
         if Path.isfree mid p then
           nondep_mty env va (Env.find_modtype_expansion p env)
         else mty
+    | Mty_alias p ->
+        if Path.isfree mid p then
+          nondep_mty env va (Env.find_module p env).md_type
+        else mty
     | Mty_signature sg ->
         Mty_signature(nondep_sig env va sg)
     | Mty_functor(param, arg, res) ->
         let var_inv =
           match va with Co -> Contra | Contra -> Co | Strict -> Strict in
-        Mty_functor(param, nondep_mty env var_inv arg,
-                     nondep_mty (Env.add_module param arg env) va res)
+        Mty_functor(param, Misc.may_map (nondep_mty env var_inv) arg,
+                    nondep_mty
+                      (Env.add_module ~arg:true param
+                         (Btype.default_mty arg) env) va res)
 
   and nondep_sig env va = function
     [] -> []
@@ -186,6 +194,7 @@ and enrich_item env p = function
 let rec type_paths env p mty =
   match scrape env mty with
     Mty_ident p -> []
+  | Mty_alias p -> []
   | Mty_signature sg -> type_paths_sig env p 0 sg
   | Mty_functor(param, arg, res) -> []
 
@@ -212,6 +221,7 @@ let rec no_code_needed env mty =
     Mty_ident p -> false
   | Mty_signature sg -> no_code_needed_sig env sg
   | Mty_functor(_, _, _) -> false
+  | Mty_alias p -> true
 
 and no_code_needed_sig env sg =
   match sg with
@@ -228,3 +238,36 @@ and no_code_needed_sig env sg =
       no_code_needed_sig env rem
   | (Sig_exception _ | Sig_class _) :: rem ->
       false
+
+
+(* Check whether a module type may return types *)
+
+let rec contains_type env = function
+    Mty_ident path ->
+      (try Misc.may (contains_type env) (Env.find_modtype path env).mtd_type
+       with Not_found -> raise Exit)
+  | Mty_signature sg ->
+      contains_type_sig env sg
+  | Mty_functor (_, _, body) ->
+      contains_type env body
+  | Mty_alias _ ->
+      ()
+
+and contains_type_sig env = List.iter (contains_type_item env)
+
+and contains_type_item env = function
+    Sig_type (_,({type_manifest = None} |
+                 {type_kind = Type_abstract; type_private = Private}),_)
+  | Sig_modtype _ ->
+      raise Exit
+  | Sig_module (_, {md_type = mty}, _) ->
+      contains_type env mty
+  | Sig_value _
+  | Sig_type _
+  | Sig_exception _
+  | Sig_class _
+  | Sig_class_type _ ->
+      ()
+
+let contains_type env mty =
+  try contains_type env mty; false with Exit -> true

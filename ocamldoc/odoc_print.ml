@@ -55,6 +55,7 @@ let simpl_module_type ?code t =
   let rec iter t =
     match t with
       Types.Mty_ident p -> t
+    | Types.Mty_alias p -> t
     | Types.Mty_signature _ ->
         (
          match code with
@@ -62,7 +63,7 @@ let simpl_module_type ?code t =
          | Some s -> raise (Use_code s)
         )
     | Types.Mty_functor (id, mt1, mt2) ->
-        Types.Mty_functor (id, iter mt1, iter mt2)
+        Types.Mty_functor (id, Misc.may_map iter mt1, iter mt2)
   in
   iter t
 

@@ -344,12 +344,15 @@ let out_signature = ref (fun _ -> failwith "Oprint.out_signature")
 let rec print_out_module_type ppf =
   function
     Omty_abstract -> ()
-  | Omty_functor (name, mty_arg, mty_res) ->
+  | Omty_functor (_, None, mty_res) ->
+      fprintf ppf "@[<2>functor@ () ->@ %a@]" print_out_module_type mty_res
+  | Omty_functor (name, Some mty_arg, mty_res) ->
       fprintf ppf "@[<2>functor@ (%s : %a) ->@ %a@]" name
         print_out_module_type mty_arg print_out_module_type mty_res
   | Omty_ident id -> fprintf ppf "%a" print_ident id
   | Omty_signature sg ->
       fprintf ppf "@[<hv 2>sig@ %a@;<1 -2>end@]" !out_signature sg
+  | Omty_alias id -> fprintf ppf "(module %a)" print_ident id
 and print_out_signature ppf =
   function
     [] -> ()
@@ -374,6 +377,8 @@ and print_out_sig_item ppf =
       fprintf ppf "@[<2>module type %s@]" name
   | Osig_modtype (name, mty) ->
       fprintf ppf "@[<2>module type %s =@ %a@]" name !out_module_type mty
+  | Osig_module (name, Omty_alias id, _) ->
+      fprintf ppf "@[<2>module %s =@ %a@]" name print_ident id
   | Osig_module (name, mty, rs) ->
       fprintf ppf "@[<2>%s %s :@ %a@]"
         (match rs with Orec_not -> "module"
