@@ -85,7 +85,8 @@ val register_printer: (exn -> string option) -> unit
 
 (** {6 Raw backtraces} *)
 
-type raw_backtrace
+type raw_backtrace_slot
+type raw_backtrace = raw_backtrace_slot array
 
 (** The abstract type [backtrace] stores exception backtraces in
     a low-level format, instead of directly exposing them as string as
@@ -100,6 +101,17 @@ val get_raw_backtrace: unit -> raw_backtrace
 val print_raw_backtrace: out_channel -> raw_backtrace -> unit
 val raw_backtrace_to_string: raw_backtrace -> string
 
+(** {6 Backtraces reification} *)
+
+type loc_info =
+  | Known_location of bool   (* is_raise *)
+                    * string (* filename *)
+                    * int    (* line number *)
+                    * int    (* start char *)
+                    * int    (* end char *)
+  | Unknown_location of bool (*is_raise*)
+
+val convert_raw_backtrace_slot: raw_backtrace_slot -> loc_info
 
 (** {6 Current call stack} *)
 

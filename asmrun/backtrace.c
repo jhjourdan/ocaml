@@ -172,7 +172,7 @@ CAMLprim value caml_get_current_callstack(value max_frames_value) {
     }
   }
 
-  trace = caml_alloc((mlsize_t) trace_size, Abstract_tag);
+  trace = caml_alloc((mlsize_t) trace_size, 0);
 
   /* then collect the trace */
   {
@@ -187,7 +187,7 @@ CAMLprim value caml_get_current_callstack(value max_frames_value) {
          if the trace is large and allocated on the old heap, because
          we assign values that are outside the OCaml heap. */
       Assert(!(Is_block((value) descr) && Is_in_heap((value) descr)));
-      Field(trace, trace_pos) = (value) descr;
+      Field(trace, trace_pos) = Val_long((long)descr>>1);
     }
   }
 
@@ -196,8 +196,17 @@ CAMLprim value caml_get_current_callstack(value max_frames_value) {
 
 /* Extract location information for the given frame descriptor */
 
-void caml_extract_location_info(frame_descr * d, intnat alloc_id,
-                                /*out*/ struct loc_info * li)
+struct loc_info {
+  int loc_valid;
+  int loc_is_raise;
+  char * loc_filename;
+  int loc_lnum;
+  int loc_startchr;
+  int loc_endchr;
+};
+
+static void extract_location_info(frame_descr * d, intnat alloc_id,
+                                  /*out*/ struct loc_info * li)
 {
   uintnat infoptr;
   uint32 info1, info2;
@@ -210,7 +219,6 @@ void caml_extract_location_info(frame_descr * d, intnat alloc_id,
     li->loc_is_raise = ((d->frame_size & 2) == 0);
     return;
   }
-
   /* Recover debugging info */
   infoptr = ((uintnat) d +
              sizeof(char *) + sizeof(short) + sizeof(short) +
@@ -243,7 +251,7 @@ void caml_extract_location_info(frame_descr * d, intnat alloc_id,
      b (10 bits): end of character range */
   li->loc_valid = 1;
   li->loc_is_raise = (info1 & 3) != 0;
-  li->loc_filename = (char*)infoptr + (info1 & 0x3FFFFFC);
+  li->loc_filename = (char *) infoptr + (info1 & 0x3FFFFFC);
   li->loc_lnum = info2 >> 12;
   li->loc_startchr = (info2 >> 4) & 0xFF;
   li->loc_endchr = ((info2 & 0xF) << 6) | (info1 >> 26);
@@ -253,9 +261,10 @@ void caml_extract_location_info(frame_descr * d, intnat alloc_id,
 
    note that the test for compiler-inserted raises is slightly redundant:
      (!li->loc_valid && li->loc_is_raise)
-   caml_extract_location_info above guarantees that when li->loc_valid is
-   0, then li->loc_is_raise is always 1, so the latter test is useless.
-   We kept it to keep code identical to the byterun/ implementation. */
+   extract_location_info above guarantees that when li->loc_valid is
+   0, then li->loc_is_raise is always 1, so the latter test is
+   useless. We kept it to keep code identical to the byterun/
+   implementation. */
 
 static void print_location(struct loc_info * li, int index)
 {
@@ -293,38 +302,38 @@ void caml_print_exception_backtrace(void)
   struct loc_info li;
 
   for (i = 0; i < caml_backtrace_pos; i++) {
-    caml_extract_location_info((frame_descr *) (caml_backtrace_buffer[i]), 0, &li);
+    extract_location_info((frame_descr *) (caml_backtrace_buffer[i]), 0, &li);
     print_location(&li, i);
   }
 }
 
 /* Convert the raw backtrace to a data structure usable from OCaml */
 
-CAMLprim value caml_convert_raw_backtrace(value backtrace) {
-  CAMLparam1(backtrace);
-  CAMLlocal4(res, arr, p, fname);
-  int i;
+CAMLprim value caml_convert_raw_backtrace_slot(value backtrace_slot) {
+  CAMLparam1(backtrace_slot);
+  CAMLlocal2(p, fname);
   struct loc_info li;
 
-  arr = caml_alloc(Wosize_val(backtrace), 0);
-  for (i = 0; i < Wosize_val(backtrace); i++) {
-    caml_extract_location_info((frame_descr *) Field(backtrace, i), 0, &li);
-    if (li.loc_valid) {
-      fname = caml_copy_string(li.loc_filename);
-      p = caml_alloc_small(5, 0);
-      Field(p, 0) = Val_bool(li.loc_is_raise);
-      Field(p, 1) = fname;
-      Field(p, 2) = Val_int(li.loc_lnum);
-      Field(p, 3) = Val_int(li.loc_startchr);
-      Field(p, 4) = Val_int(li.loc_endchr);
-    } else {
-      p = caml_alloc_small(1, 1);
-      Field(p, 0) = Val_bool(li.loc_is_raise);
-    }
-    caml_modify(&Field(arr, i), p);
+  if(Is_long(backtrace_slot))
+    extract_location_info((frame_descr *)(Long_val(backtrace_slot)<<1), 0, &li);
+  else
+    extract_location_info((frame_descr *)(Long_val(Field(backtrace_slot, 0))<<1),
+                          Long_val(Field(backtrace_slot, 1)), &li);
+
+  if (li.loc_valid) {
+    fname = caml_copy_string(li.loc_filename);
+    p = caml_alloc_small(5, 0);
+    Field(p, 0) = Val_bool(li.loc_is_raise);
+    Field(p, 1) = fname;
+    Field(p, 2) = Val_int(li.loc_lnum);
+    Field(p, 3) = Val_int(li.loc_startchr);
+    Field(p, 4) = Val_int(li.loc_endchr);
+  } else {
+    p = caml_alloc_small(1, 1);
+    Field(p, 0) = Val_bool(li.loc_is_raise);
   }
-  res = caml_alloc_small(1, 0); Field(res, 0) = arr; /* Some */
-  CAMLreturn(res);
+
+  CAMLreturn(p);
 }
 
 /* Get a copy of the latest backtrace */
@@ -333,28 +342,12 @@ CAMLprim value caml_get_exception_raw_backtrace(value unit)
 {
   CAMLparam0();
   CAMLlocal1(res);
-  res = caml_alloc(caml_backtrace_pos, Abstract_tag);
-  if(caml_backtrace_buffer != NULL)
-    memcpy(&Field(res, 0), caml_backtrace_buffer,
-           caml_backtrace_pos * sizeof(code_t));
-  CAMLreturn(res);
-}
 
-/* the function below is deprecated: we previously returned directly
-   the OCaml-usable representation, instead of the raw backtrace as an
-   abstract type, but this has a large performance overhead if you
-   store a lot of backtraces and print only some of them.
-
-   It is not used by the Printexc library anymore, or anywhere else in
-   the compiler, but we have kept it in case some user still depends
-   on it as an external.
-*/
-
-CAMLprim value caml_get_exception_backtrace(value unit)
-{
-  CAMLparam0();
-  CAMLlocal2(raw,res);
-  raw = caml_get_exception_raw_backtrace(unit);
-  res = caml_convert_raw_backtrace(raw);
+  res = caml_alloc(caml_backtrace_pos, 0);
+  if(caml_backtrace_buffer != NULL) {
+    int i;
+    for(i = 0; i < caml_backtrace_pos; i++)
+      Field(res, i) = Val_long((long)(caml_backtrace_buffer[i])>>1);
+  }
   CAMLreturn(res);
 }

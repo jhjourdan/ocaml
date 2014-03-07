@@ -37,32 +37,4 @@ extern frame_descr * caml_next_frame_descriptor(uintnat * pc, char ** sp);
 extern code_t caml_next_frame_pointer(value ** sp, value ** trapsp);
 #endif
 
-value caml_get_current_callstack(value max_frames_value);
-
-struct loc_info {
-  int loc_valid;
-  int loc_is_raise;
-  char * loc_filename;
-  int loc_lnum;
-  int loc_startchr;
-  int loc_endchr;
-};
-
-#ifdef NATIVE_CODE
-/* Extract location information for the given frame descriptor */
-/* alloc_id is the identifier of the allocation in a comballoc group */
-
-void caml_extract_location_info(frame_descr * d, intnat alloc_id,
-                                /*out*/ struct loc_info * li);
-
-#else
-/* Extract location information for the given PC */
-
-void caml_extract_location_info(value events, code_t pc,
-                                /*out*/ struct loc_info * li);
-
-CAMLextern char *caml_read_debug_info_error;
-value caml_read_debug_info(void);
-#endif
-
 #endif /* CAML_BACKTRACE_H */

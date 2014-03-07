@@ -3,23 +3,28 @@ type ctrl = {
     dumpped_callstack_size : int;
 }
 
-external get_ctrl : unit -> ctrl = "caml_memprof_get"
-external set_ctrl : ctrl -> unit = "caml_memprof_set"
+external set_lambda : float -> unit = "caml_memprof_set"
 
-external clear : unit -> unit = "caml_memprof_clear"
+let ctrl = ref { lambda = 0.; dumpped_callstack_size = 3 }
+let get_ctrl () = !ctrl
+let set_ctrl c =
+  if c.dumpped_callstack_size < 0 ||
+     not (c.lambda >= 0.) || c.lambda > 1. then
+    raise (Invalid_argument "caml_memprof_set");
+  set_lambda c.lambda;
+  ctrl := c
 
-type loc_info = {
-    li_hash : int;
-    li_filename : string;
-    li_line : int;
-    li_start_chr : int;
-    li_end_chr : int
-}
+external reset : unit -> unit = "caml_memprof_clear"
 
 type sample = {
-    callstack : loc_info array;
+    callstack : Printexc.raw_backtrace;
     size : int;
     occurences : int;
 }
 
 external dump_samples : unit -> sample array = "caml_memprof_dump_samples"
+
+external register_callback : (unit -> Printexc.raw_backtrace) -> unit
+    = "caml_memprof_register_callback"
+let _ = register_callback
+    (fun () -> Printexc.get_callstack (!ctrl.dumpped_callstack_size+1))

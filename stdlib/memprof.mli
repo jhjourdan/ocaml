@@ -6,17 +6,10 @@ type ctrl = {
 val get_ctrl : unit -> ctrl
 val set_ctrl : ctrl -> unit
 
-val clear : unit -> unit
+val reset : unit -> unit
 
-type loc_info = {
-    li_hash : int;
-    li_filename : string;
-    li_line : int;
-    li_start_chr : int;
-    li_end_chr : int;
-}
 type sample = {
-    callstack : loc_info array;
+    callstack : Printexc.raw_backtrace;
     size : int;
     occurences : int;
 }
