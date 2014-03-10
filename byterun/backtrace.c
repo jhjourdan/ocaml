@@ -210,7 +210,7 @@ static void read_debug_info(void)
   uint32 num_events, orig, i;
   value evl, l;
 
-  if(events == Val_false)
+  if(events != Val_false)
     CAMLreturn0;
 
   caml_register_global_root(&events);
