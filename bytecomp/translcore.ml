@@ -898,7 +898,7 @@ and transl_exp0 e =
       (* other cases compile to a lazy block holding a function *)
       | _ ->
           let fn = Lfunction (Curried, [Ident.create "param"], transl_exp e') in
-          Lprim(pmakeblock Config.lazy_tag Immutable e.exp_loc, [fn])
+          Lprim(pmakeblock Config.lazy_tag Mutable e'.exp_loc, [fn])
       end
   | Texp_object (cs, meths) ->
       let cty = cs.cstr_type in
