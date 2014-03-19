@@ -38,7 +38,8 @@ LIB_OBJS=pervasives.cmo \
   $(LIB)/camlinternalOO.cmo              \
   $(LIB)/oo.cmo $(LIB)/camlinternalMod.cmo $(LIB)/genlex.cmo                \
   $(LIB)/weak.cmo $(LIB)/filename.cmo                   \
-  $(LIB)/complex.cmo $(LIB)/arrayLabels.cmo $(LIB)/listLabels.cmo           \
+  $(LIB)/complex.cmo $(LIB)/memprof.cmo $(LIB)/arrayLabels.cmo              \
+  $(LIB)/listLabels.cmo           \
   $(LIB)/stringLabels.cmo $(LIB)/stdLabels.cmo $(LIB)/moreLabels.cmo
 
 UNIXLIB=../unix

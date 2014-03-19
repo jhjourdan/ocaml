@@ -41,6 +41,7 @@ STDLIB_MODULES=\
   listLabels \
   map \
   marshal \
+  memprof \
   moreLabels \
   nativeint \
   obj \
