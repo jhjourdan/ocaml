@@ -45,6 +45,7 @@ Compilers:
   the [@@deprecated] attribute
 - PR#6203: Constant exception constructor no longer allocate
 - PR#6311: Improve signature mismatch error messages
+- PR#6345: Better compilation of optional arguments with default values
 
 Runtime system:
 - Fixed a major performance problem on large heaps (~1GB) by making heap
@@ -92,6 +93,8 @@ Features wishes:
 - PR#6071: Add a -noinit option to the toplevel (patch by David Sheets)
 - PR#6166: document -ocamldoc option of ocamlbuild
 - PR#6246: allow wilcard _ as for-loop index
+- ocamllex: user-definable refill action
+	    (patch by Frédéric Bour)
 
 OCaml 4.01.1:
 -------------
