@@ -55,6 +55,7 @@ val dllpaths : string list ref
 val make_package : bool ref
 val for_package : string option ref
 val error_size : int ref
+val float_const_prop : bool ref
 val transparent_modules : bool ref
 val dump_source : bool ref
 val dump_parsetree : bool ref
@@ -67,6 +68,7 @@ val keep_asm_file : bool ref
 val optimize_for_speed : bool ref
 val dump_cmm : bool ref
 val dump_selection : bool ref
+val dump_cse : bool ref
 val dump_live : bool ref
 val dump_spill : bool ref
 val dump_split : bool ref

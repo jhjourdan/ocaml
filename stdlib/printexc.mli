@@ -113,6 +113,22 @@ type loc_info =
 
 val convert_raw_backtrace_slot: raw_backtrace_slot -> loc_info
 
+(** {6 Uncaught exceptions} *)
+
+val set_uncaught_exception_handler: (exn -> raw_backtrace -> unit) -> unit
+(** [Printexc.set_uncaught_exception_handler fn] registers [fn] as the handler
+    for uncaught exceptions. The default handler prints the exception and
+    backtrace on standard error output.
+
+    Note that when [fn] is called all the functions registered with
+    {!Pervasives.at_exit} have already been called. Because of this you must
+    make sure any output channel [fn] writes on is flushed.
+
+    If [fn] raises an exception, it is ignored.
+
+    @since 4.02.0
+*)
+
 (** {6 Current call stack} *)
 
 val get_callstack: int -> raw_backtrace
@@ -142,5 +158,3 @@ val exn_slot_name: exn -> string
 
     @since 4.02.0
 *)
-
-

@@ -318,6 +318,124 @@ let parse_warnings ppf iserr s =
   try Warnings.parse_options iserr s
   with Arg.Bad err -> fprintf ppf "%s.@." err
 
+(* Typing information *)
+
+let rec trim_modtype = function
+    Mty_signature _ -> Mty_signature []
+  | Mty_functor (id, mty, mty') ->
+      Mty_functor (id, mty, trim_modtype mty')
+  | Mty_ident _ | Mty_alias _ as mty -> mty
+
+let trim_signature = function
+    Mty_signature sg ->
+      Mty_signature
+        (List.map
+           (function
+               Sig_module (id, md, rs) ->
+                 Sig_module (id, {md with md_type = trim_modtype md.md_type},
+                             rs)
+             (*| Sig_modtype (id, Modtype_manifest mty) ->
+                 Sig_modtype (id, Modtype_manifest (trim_modtype mty))*)
+             | item -> item)
+           sg)
+  | mty -> mty
+
+let show_prim to_sig ppf lid =
+  let env = !Toploop.toplevel_env in
+  let loc = Location.none in
+  try
+    let s =
+      match lid with
+      | Longident.Lident s -> s
+      | Longident.Ldot (_,s) -> s
+      | Longident.Lapply _ ->
+          fprintf ppf "Invalid path %a@." Printtyp.longident lid;
+          raise Exit
+    in
+    let id = Ident.create_persistent s in
+    let sg = to_sig env loc id lid in
+    fprintf ppf "@[%a@]@." Printtyp.signature sg
+  with
+  | Not_found ->
+      fprintf ppf "@[Unknown element.@]@."
+  | Exit -> ()
+
+let all_show_funs = ref []
+
+let reg_show_prim name to_sig =
+  all_show_funs := to_sig :: !all_show_funs;
+  Hashtbl.add directive_table name (Directive_ident (show_prim to_sig std_out))
+
+let () =
+  reg_show_prim "show_val"
+    (fun env loc id lid ->
+       let path, desc = Typetexp.find_value env loc lid in
+       [ Sig_value (id, desc) ]
+    )
+
+let () =
+  reg_show_prim "show_type"
+    (fun env loc id lid ->
+       let path, desc = Typetexp.find_type env loc lid in
+       [ Sig_type (id, desc, Trec_not) ]
+    )
+
+let () =
+  reg_show_prim "show_exception"
+    (fun env loc id lid ->
+       let desc = Typetexp.find_constructor env loc lid in
+       match desc.cstr_tag with
+       | Cstr_constant _ | Cstr_block _ ->
+           raise Not_found
+       | Cstr_exception _ ->
+           [ Sig_exception (id, {exn_args=desc.cstr_args;
+                                 exn_loc=desc.cstr_loc;
+                                 exn_attributes=desc.cstr_attributes;
+                                }) ]
+    )
+
+let () =
+  reg_show_prim "show_module"
+    (fun env loc id lid ->
+       let path = Typetexp.find_module env loc lid in
+       let md = Env.find_module path env in
+       [ Sig_module (id, {md with md_type = trim_signature md.md_type},
+                     Trec_not) ]
+    )
+
+let () =
+  reg_show_prim "show_module_type"
+    (fun env loc id lid ->
+       let path, desc = Typetexp.find_modtype env loc lid in
+       [ Sig_modtype (id, desc) ]
+    )
+
+let () =
+  reg_show_prim "show_class"
+    (fun env loc id lid ->
+       let path, desc = Typetexp.find_class env loc lid in
+       [ Sig_class (id, desc, Trec_not) ]
+    )
+
+let () =
+  reg_show_prim "show_class_type"
+    (fun env loc id lid ->
+       let path, desc = Typetexp.find_class_type env loc lid in
+       [ Sig_class_type (id, desc, Trec_not) ]
+    )
+
+
+let show env loc id lid =
+  let sg =
+    List.fold_left
+      (fun sg f -> try (f env loc id lid) @ sg with _ -> sg)
+      [] !all_show_funs
+  in
+  if sg = [] then raise Not_found else sg
+
+let () =
+  Hashtbl.add directive_table "show" (Directive_ident (show_prim show std_out))
+
 let _ =
   Hashtbl.add directive_table "trace" (Directive_ident (dir_trace std_out));
   Hashtbl.add directive_table "untrace" (Directive_ident (dir_untrace std_out));
@@ -346,4 +464,6 @@ let _ =
              (Directive_string (parse_warnings std_out false));
 
   Hashtbl.add directive_table "warn_error"
-             (Directive_string (parse_warnings std_out true))
+             (Directive_string (parse_warnings std_out true));
+
+  ()

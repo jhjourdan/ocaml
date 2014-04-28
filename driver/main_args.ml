@@ -154,6 +154,10 @@ let mk_no_app_funct f =
   "-no-app-funct", Arg.Unit f, " Deactivate applicative functors"
 ;;
 
+let mk_no_float_const_prop f =
+  "-no-float-const-prop", Arg.Unit f, " Deactivate constant propagation for floating-point operations"
+;;
+
 let mk_noassert f =
   "-noassert", Arg.Unit f, " Do not compile assertion checks"
 ;;
@@ -385,6 +389,10 @@ let mk_dcombine f =
   "-dcombine", Arg.Unit f, " (undocumented)"
 ;;
 
+let mk_dcse f =
+  "-dcse", Arg.Unit f, " (undocumented)"
+;;
+
 let mk_dlive f =
   "-dlive", Arg.Unit f, " (undocumented)"
 ;;
@@ -554,6 +562,7 @@ module type Optcomp_options = sig
   val _labels : unit -> unit
   val _linkall : unit -> unit
   val _no_app_funct : unit -> unit
+  val _no_float_const_prop : unit -> unit
   val _noassert : unit -> unit
   val _noautolink : unit -> unit
   val _nodynlink : unit -> unit
@@ -594,6 +603,7 @@ module type Optcomp_options = sig
   val _dcmm : unit -> unit
   val _dsel : unit -> unit
   val _dcombine : unit -> unit
+  val _dcse : unit -> unit
   val _dlive : unit -> unit
   val _dspill : unit -> unit
   val _dsplit : unit -> unit
@@ -646,6 +656,7 @@ module type Opttop_options = sig
   val _dcmm : unit -> unit
   val _dsel : unit -> unit
   val _dcombine : unit -> unit
+  val _dcse : unit -> unit
   val _dlive : unit -> unit
   val _dspill : unit -> unit
   val _dsplit : unit -> unit
@@ -724,6 +735,7 @@ struct
     mk_warn_error F._warn_error;
     mk_warn_help F._warn_help;
     mk_where F._where;
+    mk__ F.anonymous;
 
     mk_nopervasives F._nopervasives;
     mk_use_prims F._use_prims;
@@ -733,8 +745,6 @@ struct
     mk_drawlambda F._drawlambda;
     mk_dlambda F._dlambda;
     mk_dinstr F._dinstr;
-
-    mk__ F.anonymous;
   ]
 end;;
 
@@ -765,6 +775,7 @@ struct
     mk_w F._w;
     mk_warn_error F._warn_error;
     mk_warn_help F._warn_help;
+    mk__ F.anonymous;
 
     mk_dsource F._dsource;
     mk_dparsetree F._dparsetree;
@@ -772,8 +783,6 @@ struct
     mk_drawlambda F._drawlambda;
     mk_dlambda F._dlambda;
     mk_dinstr F._dinstr;
-
-    mk__ F.anonymous;
   ]
 end;;
 
@@ -803,6 +812,7 @@ struct
     mk_labels F._labels;
     mk_linkall F._linkall;
     mk_no_app_funct F._no_app_funct;
+    mk_no_float_const_prop F._no_float_const_prop;
     mk_noassert F._noassert;
     mk_noautolink_opt F._noautolink;
     mk_nodynlink F._nodynlink;
@@ -832,6 +842,7 @@ struct
     mk_warn_error F._warn_error;
     mk_warn_help F._warn_help;
     mk_where F._where;
+    mk__ F.anonymous;
 
     mk_nopervasives F._nopervasives;
     mk_dsource F._dsource;
@@ -843,6 +854,7 @@ struct
     mk_dcmm F._dcmm;
     mk_dsel F._dsel;
     mk_dcombine F._dcombine;
+    mk_dcse F._dcse;
     mk_dlive F._dlive;
     mk_dspill F._dspill;
     mk_dsplit F._dsplit;
@@ -853,8 +865,6 @@ struct
     mk_dscheduling F._dscheduling;
     mk_dlinear F._dlinear;
     mk_dstartup F._dstartup;
-
-    mk__ F.anonymous;
   ]
 end;;
 
@@ -887,6 +897,7 @@ module Make_opttop_options (F : Opttop_options) = struct
     mk_w F._w;
     mk_warn_error F._warn_error;
     mk_warn_help F._warn_help;
+    mk__ F.anonymous;
 
     mk_dsource F._dsource;
     mk_dparsetree F._dparsetree;
@@ -896,6 +907,7 @@ module Make_opttop_options (F : Opttop_options) = struct
     mk_dcmm F._dcmm;
     mk_dsel F._dsel;
     mk_dcombine F._dcombine;
+    mk_dcse F._dcse;
     mk_dlive F._dlive;
     mk_dspill F._dspill;
     mk_dsplit F._dsplit;
@@ -906,7 +918,5 @@ module Make_opttop_options (F : Opttop_options) = struct
     mk_dscheduling F._dscheduling;
     mk_dlinear F._dlinear;
     mk_dstartup F._dstartup;
-
-    mk__ F.anonymous;
   ]
 end;;

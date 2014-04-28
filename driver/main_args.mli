@@ -136,6 +136,7 @@ module type Optcomp_options = sig
   val _labels : unit -> unit
   val _linkall : unit -> unit
   val _no_app_funct : unit -> unit
+  val _no_float_const_prop : unit -> unit
   val _noassert : unit -> unit
   val _noautolink : unit -> unit
   val _nodynlink : unit -> unit
@@ -176,6 +177,7 @@ module type Optcomp_options = sig
   val _dcmm : unit -> unit
   val _dsel : unit -> unit
   val _dcombine : unit -> unit
+  val _dcse : unit -> unit
   val _dlive : unit -> unit
   val _dspill : unit -> unit
   val _dsplit : unit -> unit
@@ -228,6 +230,7 @@ module type Opttop_options = sig
   val _dcmm : unit -> unit
   val _dsel : unit -> unit
   val _dcombine : unit -> unit
+  val _dcse : unit -> unit
   val _dlive : unit -> unit
   val _dspill : unit -> unit
   val _dsplit : unit -> unit

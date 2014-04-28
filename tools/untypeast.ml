@@ -55,16 +55,21 @@ and untype_structure_item item =
         Pstr_type (List.map untype_type_declaration list)
     | Tstr_exception decl ->
         Pstr_exception (untype_constructor_declaration decl)
-    | Tstr_exn_rebind (_id, name, _p, lid, attrs) ->
-        Pstr_exn_rebind (name, lid, attrs)
+    | Tstr_exn_rebind er ->
+        Pstr_exn_rebind (untype_exception_rebind er)
     | Tstr_module mb ->
         Pstr_module (untype_module_binding mb)
     | Tstr_recmodule list ->
         Pstr_recmodule (List.map untype_module_binding list)
     | Tstr_modtype mtd ->
-        Pstr_modtype {pmtd_name=mtd.mtd_name; pmtd_type=option untype_module_type mtd.mtd_type;
+        Pstr_modtype {pmtd_name=mtd.mtd_name;
+                      pmtd_type=option untype_module_type mtd.mtd_type;
                       pmtd_loc=mtd.mtd_loc;pmtd_attributes=mtd.mtd_attributes;}
-    | Tstr_open (ovf, _path, lid, attrs) -> Pstr_open (ovf, lid, attrs)
+    | Tstr_open od ->
+        Pstr_open {popen_lid = od.open_txt; popen_override = od.open_override;
+                   popen_attributes = od.open_attributes;
+                   popen_loc = od.open_loc;
+                  }
     | Tstr_class list ->
         Pstr_class (List.map (fun (ci, _, _) ->
               { pci_virt = ci.ci_virt;
@@ -86,8 +91,11 @@ and untype_structure_item item =
                 pci_attributes = ct.ci_attributes;
               }
           ) list)
-    | Tstr_include (mexpr, _, attrs) ->
-        Pstr_include (untype_module_expr mexpr, attrs)
+    | Tstr_include incl ->
+        Pstr_include {pincl_mod = untype_module_expr incl.incl_mod;
+                      pincl_attributes = incl.incl_attributes;
+                      pincl_loc = incl.incl_loc;
+                     }
     | Tstr_attribute x ->
         Pstr_attribute x
   in
@@ -146,6 +154,14 @@ and untype_constructor_declaration cd =
    pcd_attributes = cd.cd_attributes;
   }
 
+and untype_exception_rebind er =
+  {
+   pexrb_name = er.exrb_name;
+   pexrb_lid = er.exrb_txt;
+   pexrb_attributes = er.exrb_attributes;
+   pexrb_loc = er.exrb_loc;
+  }
+
 and untype_pattern pat =
   let desc =
   match pat with
@@ -191,7 +207,8 @@ and untype_pattern pat =
     | Tpat_or (p1, p2, _) -> Ppat_or (untype_pattern p1, untype_pattern p2)
     | Tpat_lazy p -> Ppat_lazy (untype_pattern p)
   in
-  Pat.mk ~loc:pat.pat_loc ~attrs:pat.pat_attributes desc (* todo: fix attributes on extras *)
+  Pat.mk ~loc:pat.pat_loc ~attrs:pat.pat_attributes desc
+    (* todo: fix attributes on extras *)
 
 and untype_extra (extra, loc, attrs) sexp =
   let desc =
@@ -217,11 +234,12 @@ and untype_case {c_lhs; c_guard; c_rhs} =
    pc_rhs = untype_expression c_rhs;
   }
 
-and untype_binding {vb_pat; vb_expr; vb_attributes} =
+and untype_binding {vb_pat; vb_expr; vb_attributes; vb_loc} =
   {
     pvb_pat = untype_pattern vb_pat;
     pvb_expr = untype_expression vb_expr;
     pvb_attributes = vb_attributes;
+    pvb_loc = vb_loc;
   }
 
 and untype_expression exp =
@@ -331,7 +349,8 @@ and untype_signature_item item =
     | Tsig_exception decl ->
         Psig_exception (untype_constructor_declaration decl)
     | Tsig_module md ->
-        Psig_module {pmd_name = md.md_name; pmd_type = untype_module_type md.md_type;
+        Psig_module {pmd_name = md.md_name;
+                     pmd_type = untype_module_type md.md_type;
                      pmd_attributes = md.md_attributes; pmd_loc = md.md_loc;
                     }
     | Tsig_recmodule list ->
@@ -339,10 +358,20 @@ and untype_signature_item item =
               {pmd_name = md.md_name; pmd_type = untype_module_type md.md_type;
                pmd_attributes = md.md_attributes; pmd_loc = md.md_loc}) list)
     | Tsig_modtype mtd ->
-        Psig_modtype {pmtd_name=mtd.mtd_name; pmtd_type=option untype_module_type mtd.mtd_type;
+        Psig_modtype {pmtd_name=mtd.mtd_name;
+                      pmtd_type=option untype_module_type mtd.mtd_type;
                       pmtd_attributes=mtd.mtd_attributes; pmtd_loc=mtd.mtd_loc}
-    | Tsig_open (ovf, _path, lid, attrs) -> Psig_open (ovf, lid, attrs)
-    | Tsig_include (mty, _, attrs) -> Psig_include (untype_module_type mty, attrs)
+    | Tsig_open od ->
+        Psig_open {popen_lid = od.open_txt;
+                   popen_override = od.open_override;
+                   popen_attributes = od.open_attributes;
+                   popen_loc = od.open_loc;
+                  }
+    | Tsig_include incl ->
+        Psig_include {pincl_mod = untype_module_type incl.incl_mod;
+                      pincl_attributes = incl.incl_attributes;
+                      pincl_loc = incl.incl_loc;
+                     }
     | Tsig_class list ->
         Psig_class (List.map untype_class_description list)
     | Tsig_class_type list ->

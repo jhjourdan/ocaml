@@ -21,12 +21,6 @@
 #include "memory.h"
 #include "hash.h"
 
-#ifdef ARCH_INT64_TYPE
-#include "int64_native.h"
-#else
-#include "int64_emul.h"
-#endif
-
 /* The new implementation, based on MurmurHash 3,
      http://code.google.com/p/smhasher/  */
 
@@ -77,9 +71,7 @@ CAMLexport uint32 caml_hash_mix_intnat(uint32 h, intnat d)
 
 CAMLexport uint32 caml_hash_mix_int64(uint32 h, int64 d)
 {
-  uint32 hi, lo;
-
-  I64_split(d, hi, lo);
+  uint32 hi = (uint32) (d >> 32), lo = (uint32) d;
   MIX(h, lo);
   MIX(h, hi);
   return h;
@@ -221,7 +213,7 @@ CAMLprim value caml_hash(value count, value limit, value seed, value obj)
         for (i = 0, len = Wosize_val(v) / Double_wosize; i < len; i++) {
           h = caml_hash_mix_double(h, Double_field(v, i));
           num--;
-          if (num < 0) break;
+          if (num <= 0) break;
         }
         break;
       case Abstract_tag:
@@ -235,6 +227,9 @@ CAMLprim value caml_hash(value count, value limit, value seed, value obj)
         goto again;
       case Forward_tag:
         v = Forward_val(v);
+        /* PR#6361: this should count as 1, otherwise we can get into a loop */
+        num--;
+        if (num <= 0) break;
         goto again;
       case Object_tag:
         h = caml_hash_mix_intnat(h, Oid_val(v));

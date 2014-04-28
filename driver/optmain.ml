@@ -94,6 +94,7 @@ module Options = Main_args.Make_optcomp_options (struct
   let _labels = clear classic
   let _linkall = set link_everything
   let _no_app_funct = clear applicative_functors
+  let _no_float_const_prop = clear float_const_prop
   let _noassert = set noassert
   let _noautolink = set no_auto_link
   let _nodynlink = clear dlcode
@@ -134,6 +135,7 @@ module Options = Main_args.Make_optcomp_options (struct
   let _dcmm = set dump_cmm
   let _dsel = set dump_selection
   let _dcombine = set dump_combine
+  let _dcse = set dump_cse
   let _dlive () = dump_live := true; Printmach.print_live := true
   let _dspill = set dump_spill
   let _dsplit = set dump_split
