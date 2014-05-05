@@ -93,6 +93,7 @@ module Options = Main_args.Make_optcomp_options (struct
   let _keep_locs = set keep_locs
   let _labels = clear classic
   let _linkall = set link_everything
+  let _no_alias_deps = set transparent_modules
   let _no_app_funct = clear applicative_functors
   let _no_float_const_prop = clear float_const_prop
   let _noassert = set noassert
@@ -109,13 +110,14 @@ module Options = Main_args.Make_optcomp_options (struct
   let _principal = set principal
   let _rectypes = set recursive_types
   let _runtime_variant s = runtime_variant := s
+  let _safe_string = clear unsafe_string
   let _short_paths = clear real_paths
   let _strict_sequence = set strict_sequence
-  let _trans_mod = set transparent_modules
   let _shared () = shared := true; dlcode := true
   let _S = set keep_asm_file
   let _thread = set use_threads
   let _unsafe = set fast
+  let _unsafe_string = set unsafe_string
   let _v () = print_version_and_library "native-code compiler"
   let _version () = print_version_string ()
   let _vnum () = print_version_string ()
@@ -174,7 +176,8 @@ let main () =
     else if !make_package then begin
       Compmisc.init_path true;
       let target = extract_output !output_name in
-      Asmpackager.package_files ppf (get_objfiles ()) target;
+      Asmpackager.package_files ppf (Compmisc.initial_env ())
+        (get_objfiles ()) target;
       Warnings.check_fatal ();
     end
     else if !shared then begin

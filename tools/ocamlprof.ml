@@ -35,7 +35,7 @@ and inchan = ref stdin
 and outchan = ref stdout
 
 (* To copy source fragments *)
-let copy_buffer = String.create 256
+let copy_buffer = Bytes.create 256
 
 let copy_chars_unix nchars =
   let n = ref nchars in
@@ -344,6 +344,7 @@ and rewrite_class_field iflag cf =
   | Pcf_method (_, _, Cfk_virtual _)
   | Pcf_val (_, _, Cfk_virtual _)
   | Pcf_constraint _  -> ()
+  | Pcf_attribute _ -> ()
   | Pcf_extension _ -> ()
 
 and rewrite_class_expr iflag cexpr =

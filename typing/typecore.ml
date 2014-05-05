@@ -183,13 +183,13 @@ let iter_expression f e =
     | Pstr_value (_, pel) -> List.iter binding pel
     | Pstr_primitive _
     | Pstr_type _
+    | Pstr_typext _
     | Pstr_exception _
     | Pstr_modtype _
     | Pstr_open _
     | Pstr_class_type _
     | Pstr_attribute _
-    | Pstr_extension _
-    | Pstr_exn_rebind _ -> ()
+    | Pstr_extension _ -> ()
     | Pstr_include {pincl_mod = me}
     | Pstr_module {pmb_expr = me} -> module_expr me
     | Pstr_recmodule l -> List.iter (fun x -> module_expr x.pmb_expr) l
@@ -215,7 +215,7 @@ let iter_expression f e =
     | Pcf_val (_, _, Cfk_concrete (_, e))
     | Pcf_method (_, _, Cfk_concrete (_, e)) -> expr e
     | Pcf_initializer e -> expr e
-    | Pcf_extension _ -> ()
+    | Pcf_attribute _ | Pcf_extension _ -> ()
 
   in
   expr e
@@ -257,14 +257,14 @@ let mkexp exp_desc exp_type exp_loc exp_env =
   { exp_desc; exp_type; exp_loc; exp_env; exp_extra = []; exp_attributes = [] }
 
 let option_none ty loc =
-  let lid = Longident.Lident "None" in
-  let cnone = Env.lookup_constructor lid Env.initial in
-  mkexp (Texp_construct(mknoloc lid, cnone, []))
-    ty loc Env.initial
+  let lid = Longident.Lident "None"
+  and env = Env.initial_safe_string in
+  let cnone = Env.lookup_constructor lid env in
+  mkexp (Texp_construct(mknoloc lid, cnone, [])) ty loc env
 
 let option_some texp =
   let lid = Longident.Lident "Some" in
-  let csome = Env.lookup_constructor lid Env.initial in
+  let csome = Env.lookup_constructor lid Env.initial_safe_string in
   mkexp ( Texp_construct(mknoloc lid , csome, [texp]) )
     (type_option texp.exp_type) texp.exp_loc texp.exp_env
 
@@ -280,8 +280,7 @@ let extract_concrete_record env ty =
 
 let extract_concrete_variant env ty =
   match extract_concrete_typedecl env ty with
-    (* exclude exceptions *)
-    (p0, p, {type_kind=Type_variant (_::_ as cstrs)}) -> (p0, p, cstrs)
+    (p0, p, {type_kind=Type_variant cstrs}) -> (p0, p, cstrs)
   | _ -> raise Not_found
 
 let extract_label_names sexp env ty =
@@ -864,13 +863,6 @@ let check_recordpat_labels loc lbl_pat_list closed =
 
 (* Constructors *)
 
-let lookup_constructor_from_type env tpath lid =
-  let (constructors, _) = Env.find_type_descrs tpath env in
-    match lid with
-      Longident.Lident s ->
-        List.find (fun cstr -> cstr.cstr_name = s) constructors
-    | _ -> raise Not_found
-
 module Constructor = NameChoice (struct
   type t = constructor_description
   let type_kind = "variant"
@@ -1412,7 +1404,8 @@ let rec is_nonexpansive exp =
               incr count; true
           | Tcf_initializer e -> is_nonexpansive e
           | Tcf_constraint _ -> true
-          | Tcf_inherit _ -> false)
+          | Tcf_inherit _ -> false
+          | Tcf_attribute _ -> true)
         fields &&
       Vars.fold (fun _ (mut,_,_) b -> decr count; b && mut = Immutable)
         vars true &&
@@ -1432,8 +1425,8 @@ and is_nonexpansive_mod mexp =
   | Tmod_structure str ->
       List.for_all
         (fun item -> match item.str_desc with
-          | Tstr_eval _ | Tstr_primitive _ | Tstr_type _ | Tstr_modtype _
-          | Tstr_open _ | Tstr_class_type _ | Tstr_exn_rebind _ -> true
+          | Tstr_eval _ | Tstr_primitive _ | Tstr_type _
+          | Tstr_modtype _ | Tstr_open _ | Tstr_class_type _  -> true
           | Tstr_value (_, pat_exp_list) ->
               List.for_all (fun vb -> is_nonexpansive vb.vb_expr) pat_exp_list
           | Tstr_module {mb_expr=m;_}
@@ -1441,7 +1434,14 @@ and is_nonexpansive_mod mexp =
           | Tstr_recmodule id_mod_list ->
               List.for_all (fun {mb_expr=m;_} -> is_nonexpansive_mod m)
                 id_mod_list
-          | Tstr_exception _ -> false (* true would be unsound *)
+          | Tstr_exception {ext_kind = Text_decl _} ->
+              false (* true would be unsound *)
+          | Tstr_exception {ext_kind = Text_rebind _} -> true
+          | Tstr_typext te ->
+              List.for_all
+                (function {ext_kind = Text_decl _} -> false
+                        | {ext_kind = Text_rebind _} -> true)
+                te.tyext_constructors
           | Tstr_class _ -> false (* could be more precise *)
           | Tstr_attribute _ -> true
         )

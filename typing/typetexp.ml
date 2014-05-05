@@ -21,7 +21,7 @@ open Typedtree
 open Types
 open Ctype
 
-exception Already_bound of Location.t
+exception Already_bound
 
 type error =
     Unbound_type_variable of string
@@ -126,7 +126,7 @@ let find_component lookup make_error env loc lid =
   try
     match lid with
     | Longident.Ldot (Longident.Lident "*predef*", s) ->
-        lookup (Longident.Lident s) Env.initial
+        lookup (Longident.Lident s) Env.initial_safe_string
     | _ -> lookup lid env
   with Not_found ->
     narrow_unbound_lid_error env loc lid make_error
@@ -258,23 +258,34 @@ let new_global_var ?name () =
 let newvar ?name () =
   newvar ?name:(validate_name name) ()
 
-let enter_type_variable {Location.txt=name; loc} =
-  try
-    if name <> "" && name.[0] = '_' then
-      raise (Error (loc, Env.empty, Invalid_variable_name ("'" ^ name)));
-    let v = Tbl.find name !type_variables in
-    raise (Already_bound loc);
-    v
-  with Not_found ->
-    let v = new_global_var ~name () in
-    type_variables := Tbl.add name v !type_variables;
-    v
-
 let type_variable loc name =
   try
     Tbl.find name !type_variables
   with Not_found ->
     raise(Error(loc, Env.empty, Unbound_type_variable ("'" ^ name)))
+
+let transl_type_param env styp =
+  let loc = styp.ptyp_loc in
+  match styp.ptyp_desc with
+    Ptyp_any ->
+      let ty = new_global_var ~name:"_" () in
+        { ctyp_desc = Ttyp_any; ctyp_type = ty; ctyp_env = env;
+          ctyp_loc = loc; ctyp_attributes = styp.ptyp_attributes; }
+  | Ptyp_var name ->
+      let ty =
+        try
+          if name <> "" && name.[0] = '_' then
+            raise (Error (loc, Env.empty, Invalid_variable_name ("'" ^ name)));
+          ignore (Tbl.find name !type_variables);
+          raise Already_bound
+        with Not_found ->
+          let v = new_global_var ~name () in
+            type_variables := Tbl.add name v !type_variables;
+            v
+      in
+        { ctyp_desc = Ttyp_var name; ctyp_type = ty; ctyp_env = env;
+          ctyp_loc = loc; ctyp_attributes = styp.ptyp_attributes; }
+  | _ -> assert false
 
 let wrap_method ty =
   match (Ctype.repr ty).desc with
@@ -398,7 +409,7 @@ let rec transl_type env policy styp =
           let (path, decl) = Env.lookup_type lid2 env in
           (path, decl, false)
         with Not_found ->
-          raise(Error(styp.ptyp_loc, env, Unbound_class lid.txt))
+          ignore (find_class env styp.ptyp_loc lid.txt); assert false
       in
       if List.length stl <> decl.type_arity then
         raise(Error(styp.ptyp_loc, env,
@@ -508,7 +519,7 @@ let rec transl_type env policy styp =
           Hashtbl.add hfields h (l,f)
       in
       let add_field = function
-          Rtag (l, c, stl) ->
+          Rtag (l, attrs, c, stl) ->
             name := None;
             let tl = List.map (transl_type env policy) stl in
             let f = match present with
@@ -523,7 +534,7 @@ let rec transl_type env policy styp =
                       Rpresent (Some st.ctyp_type)
             in
             add_typed_field styp.ptyp_loc l f;
-              Ttag (l,c,tl)
+              Ttag (l,attrs,c,tl)
         | Rinherit sty ->
             let cty = transl_type env policy sty in
             let ty = cty.ctyp_type in
@@ -629,7 +640,7 @@ let rec transl_type env policy styp =
                        List.map (fun (_,cty) -> cty.ctyp_type) ptys))
       in
       ctyp (Ttyp_package {
-            pack_name = path;
+            pack_path = path;
             pack_type = mty.mty_type;
             pack_fields = ptys;
             pack_txt = p;

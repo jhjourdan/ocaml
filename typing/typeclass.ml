@@ -410,6 +410,10 @@ let rec class_type_field env self_type meths
       (mkctf (Tctf_constraint (cty, cty')) :: fields,
         val_sig, concr_meths, inher)
 
+  | Pctf_attribute x ->
+      (mkctf (Tctf_attribute x) :: fields,
+        val_sig, concr_meths, inher)
+
   | Pctf_extension (s, _arg) ->
       raise (Error (s.loc, env, Extension s.txt))
 
@@ -700,7 +704,10 @@ let rec class_field self_loc cl_num self_type meths vars
         end in
       (val_env, met_env, par_env, field::fields, concr_meths, warn_vals,
        inher, local_meths, local_vals)
-
+  | Pcf_attribute x ->
+      (val_env, met_env, par_env,
+        lazy (mkcf (Tcf_attribute x)) :: fields,
+        concr_meths, warn_vals, inher, local_meths, local_vals)
   | Pcf_extension (s, _arg) ->
       raise (Error (s.loc, val_env, Extension s.txt))
 
@@ -1252,12 +1259,16 @@ let class_infos define_class kind
   Ctype.begin_class_def ();
 
   (* Introduce class parameters *)
-  let params =
-    try
-      List.map (fun (x, _v) -> enter_type_variable x) cl.pci_params
-    with Already_bound loc ->
-      raise(Error(loc, env, Repeated_parameter))
+  let ci_params =
+    let make_param (sty, v) =
+      try
+          (transl_type_param env sty, v)
+      with Already_bound ->
+        raise(Error(sty.ptyp_loc, env, Repeated_parameter))
+    in
+      List.map make_param cl.pci_params
   in
+  let params = List.map (fun (cty, _) -> cty.ctyp_type) ci_params in
 
   (* Allow self coercions (only for class declarations) *)
   let coercion_locs = ref [] in
@@ -1443,12 +1454,12 @@ let class_infos define_class kind
      type_attributes = []; (* or keep attrs from cl? *)
     }
   in
-  ((cl, id, clty, ty_id, cltydef, obj_id, obj_abbr, cl_id, cl_abbr,
+  ((cl, id, clty, ty_id, cltydef, obj_id, obj_abbr, cl_id, cl_abbr, ci_params,
     arity, pub_meths, List.rev !coercion_locs, expr) :: res,
    env)
 
 let final_decl env define_class
-    (cl, id, clty, ty_id, cltydef, obj_id, obj_abbr, cl_id, cl_abbr,
+    (cl, id, clty, ty_id, cltydef, obj_id, obj_abbr, cl_id, cl_abbr, ci_params,
      arity, pub_meths, coe, expr) =
 
   begin try Ctype.collapse_conj_params env clty.cty_params
@@ -1485,7 +1496,7 @@ let final_decl env define_class
    arity, pub_meths, coe, expr,
    { ci_loc = cl.pci_loc;
      ci_virt = cl.pci_virt;
-     ci_params = cl.pci_params;
+     ci_params = ci_params;
 (* TODO : check that we have the correct use of identifiers *)
      ci_id_name = cl.pci_name;
      ci_id_class = id;

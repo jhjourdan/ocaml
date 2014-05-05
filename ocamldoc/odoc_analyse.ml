@@ -33,10 +33,13 @@ let init_path () =
 
 (** Return the initial environment in which compilation proceeds. *)
 let initial_env () =
+  let initial =
+    if !Clflags.unsafe_string then Env.initial_unsafe_string
+    else Env.initial_safe_string
+  in
   try
-    if !Clflags.nopervasives
-    then Env.initial
-    else Env.open_pers_signature "Pervasives" Env.initial
+    if !Clflags.nopervasives then initial else
+    Env.open_pers_signature "Pervasives" initial
   with Not_found ->
     fatal_error "cannot open pervasives.cmi"
 
@@ -318,6 +321,7 @@ let rec remove_module_elements_between_stop keep eles =
           else
             f keep q
       | Odoc_module.Element_value _
+      | Odoc_module.Element_type_extension _
       | Odoc_module.Element_exception _
       | Odoc_module.Element_type _ ->
           if keep then

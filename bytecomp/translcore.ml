@@ -309,6 +309,7 @@ let primitives_table = create_hashtable 57 [
   "%bswap_int32", Pbbswap(Pint32);
   "%bswap_int64", Pbbswap(Pint64);
   "%bswap_native", Pbbswap(Pnativeint);
+  "%int_as_pointer", Pint_as_pointer;
 ]
 
 let prim_makearray =
@@ -395,6 +396,11 @@ let transl_prim loc prim args =
       raise(Error(loc, Unknown_builtin_primitive prim_name));
     Pccall prim
 
+(* Pmakeblock helper *)
+
+let pmakeblock tag mut loc =
+  if !Clflags.debug then Pmakeblock(tag, mut, loc)
+  else Pmakeblock(tag, mut, Location.none)
 
 (* Eta-expand a primitive without knowing the types of its arguments *)
 
@@ -421,7 +427,7 @@ let transl_primitive loc p =
       | 1 -> (* TODO: we should issue a warning ? *)
         let param = Ident.create "prim" in
         Lfunction(Curried, [param],
-          Lprim(Pmakeblock(0, Immutable, loc), [lam; Lvar param]))
+          Lprim(pmakeblock 0 Immutable loc, [lam; Lvar param]))
       | _ -> assert false
     end
   | _ ->
@@ -430,12 +436,6 @@ let transl_primitive loc p =
       let params = make_params p.prim_arity in
       Lfunction(Curried, params,
                 Lprim(prim, List.map (fun id -> Lvar id) params))
-
-(* Pmakeblock helper *)
-
-let pmakeblock tag mut loc =
-  if !Clflags.debug then Pmakeblock(tag, mut, loc)
-  else Pmakeblock(tag, mut, Location.none)
 
 (* To check the well-formedness of r.h.s. of "let rec" definitions *)
 
@@ -724,7 +724,7 @@ and transl_exp0 e =
           lam_of_loc kind e.exp_loc
         | (Ploc kind, [arg1]) ->
           let lam = lam_of_loc kind arg1.exp_loc in
-          Lprim(Pmakeblock(0, Immutable, e.exp_loc), lam :: argl)
+          Lprim(pmakeblock 0 Immutable e.exp_loc, lam :: argl)
         | (Ploc _, _) -> assert false
         | (_, _) ->
             begin match (prim, argl) with
@@ -765,10 +765,11 @@ and transl_exp0 e =
           with Not_constant ->
             Lprim(pmakeblock n Immutable e.exp_loc, ll)
           end
-      | Cstr_exception (path, _) ->
-          let slot = transl_path ~loc:e.exp_loc e.exp_env path in
-          if cstr.cstr_arity = 0 then slot
-          else Lprim(pmakeblock 0 Immutable e.exp_loc, slot :: ll)
+      | Cstr_extension(path, is_const) ->
+          if is_const then
+            transl_path e.exp_env path
+          else Lprim(pmakeblock 0 Immutable e.exp_loc,
+                     transl_path e.exp_env path :: ll)
       end
   | Texp_variant(l, arg) ->
       let tag = Btype.hash_variant l in

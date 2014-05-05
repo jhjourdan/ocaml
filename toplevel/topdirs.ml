@@ -75,7 +75,7 @@ let load_compunit ic filename ppf compunit =
   let code_size = compunit.cu_codesize + 8 in
   let code = Meta.static_alloc code_size in
   unsafe_really_input ic code 0 compunit.cu_codesize;
-  String.unsafe_set code compunit.cu_codesize (Char.chr Opcodes.opRETURN);
+  Bytes.unsafe_set code compunit.cu_codesize (Char.chr Opcodes.opRETURN);
   String.unsafe_blit "\000\000\000\001\000\000\000" 0
                      code (compunit.cu_codesize + 1) 7;
   let initial_symtable = Symtable.current_state() in
@@ -110,7 +110,7 @@ let rec load_file recursive ppf name =
 
 and really_load_file recursive ppf name filename ic =
   let ic = open_in_bin filename in
-  let buffer = Misc.input_bytes ic (String.length Config.cmo_magic_number) in
+  let buffer = really_input_string ic (String.length Config.cmo_magic_number) in
   try
     if buffer = Config.cmo_magic_number then begin
       let compunit_pos = input_binary_int ic in  (* Go to descriptor *)
@@ -384,14 +384,22 @@ let () =
   reg_show_prim "show_exception"
     (fun env loc id lid ->
        let desc = Typetexp.find_constructor env loc lid in
-       match desc.cstr_tag with
-       | Cstr_constant _ | Cstr_block _ ->
-           raise Not_found
-       | Cstr_exception _ ->
-           [ Sig_exception (id, {exn_args=desc.cstr_args;
-                                 exn_loc=desc.cstr_loc;
-                                 exn_attributes=desc.cstr_attributes;
-                                }) ]
+       if not (Ctype.equal env true [desc.cstr_res] [Predef.type_exn]) then
+         raise Not_found;
+       let ret_type =
+         if desc.cstr_generalized then Some Predef.type_exn
+         else None
+       in
+       let ext =
+         { ext_type_path = Predef.path_exn;
+           ext_type_params = [];
+           ext_args = desc.cstr_args;
+           ext_ret_type = ret_type;
+           ext_private = Asttypes.Public;
+           Types.ext_loc = desc.cstr_loc;
+           Types.ext_attributes = desc.cstr_attributes; }
+       in
+         [Sig_typext (id, ext, Text_exception)]
     )
 
 let () =
