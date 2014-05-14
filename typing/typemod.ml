@@ -37,11 +37,11 @@ type error =
   | Not_a_packed_module of type_expr
   | Incomplete_packed_module of type_expr
   | Scoping_pack of Longident.t * type_expr
-  | Extension of string
   | Recursive_module_require_explicit_type
   | Apply_generative
 
 exception Error of Location.t * Env.t * error
+exception Error_forward of Location.error
 
 open Typedtree
 
@@ -68,8 +68,7 @@ let extract_sig_open env loc mty =
 (* Compute the environment after opening a module *)
 
 let type_open_ ?toplevel ovf env loc lid =
-  let path = Typetexp.find_module env lid.loc lid.txt in
-  let md = Env.find_module path env in
+  let path, md = Typetexp.find_module env lid.loc lid.txt in
   let sg = extract_sig_open env lid.loc md.md_type in
   path, Env.open_signature ~loc ?toplevel ovf path sg env
 
@@ -211,8 +210,7 @@ let merge_constraint initial_env loc sg constr =
         make_next_first rs rem
     | (Sig_module(id, md, rs) :: rem, [s], Pwith_module (_, lid))
       when Ident.name id = s ->
-        let path = Typetexp.find_module initial_env loc lid.txt in
-        let md' = Env.find_module path env in
+        let path, md' = Typetexp.find_module initial_env loc lid.txt in
         let md'' = {md' with md_type = Mtype.remove_aliases env md'.md_type} in
         let newmd = Mtype.strengthen_decl env md'' path in
         ignore(Includemod.modtypes env newmd.md_type md.md_type);
@@ -220,8 +218,7 @@ let merge_constraint initial_env loc sg constr =
         Sig_module(id, newmd, rs) :: rem
     | (Sig_module(id, md, rs) :: rem, [s], Pwith_modsubst (_, lid))
       when Ident.name id = s ->
-        let path = Typetexp.find_module initial_env loc lid.txt in
-        let md' = Env.find_module path env in
+        let path, md' = Typetexp.find_module initial_env loc lid.txt in
         let newmd = Mtype.strengthen_decl env md' path in
         ignore(Includemod.modtypes env newmd.md_type md.md_type);
         real_id := Some id;
@@ -269,7 +266,7 @@ let merge_constraint initial_env loc sg constr =
     | [s], Pwith_modsubst (_, lid) ->
         let id =
           match !real_id with None -> assert false | Some id -> id in
-        let path = Typetexp.find_module initial_env loc lid.txt in
+        let path = Typetexp.lookup_module initial_env loc lid.txt in
         let sub = Subst.add_module id path Subst.identity in
         Subst.signature sub sg
     | _ ->
@@ -320,7 +317,7 @@ let rec approx_modtype env smty =
       let (path, info) = Typetexp.find_modtype env smty.pmty_loc lid.txt in
       Mty_ident path
   | Pmty_alias lid ->
-      let path = Typetexp.find_module env smty.pmty_loc lid.txt in
+      let path = Typetexp.lookup_module env smty.pmty_loc lid.txt in
       Mty_alias path
   | Pmty_signature ssg ->
       Mty_signature(approx_sig env ssg)
@@ -335,8 +332,8 @@ let rec approx_modtype env smty =
   | Pmty_typeof smod ->
       let (_, mty) = !type_module_type_of_fwd env smod in
       mty
-  | Pmty_extension (s, _arg) ->
-      raise (Error (s.loc, env, Extension s.txt))
+  | Pmty_extension ext ->
+      raise (Error_forward (Typetexp.error_of_extension ext))
 
 and approx_module_declaration env pmd =
   {
@@ -473,7 +470,7 @@ let transl_modtype_longident loc env lid =
   path
 
 let transl_module_alias loc env lid =
-  Typetexp.find_module env loc lid
+  Typetexp.lookup_module env loc lid
 
 let mkmty desc typ env loc attrs =
   let mty = {
@@ -534,8 +531,8 @@ let rec transl_modtype env smty =
   | Pmty_typeof smod ->
       let tmty, mty = !type_module_type_of_fwd env smod in
       mkmty (Tmty_typeof tmty) mty env loc smty.pmty_attributes
-  | Pmty_extension (s, _arg) ->
-      raise (Error (s.loc, env, Extension s.txt))
+  | Pmty_extension ext ->
+      raise (Error_forward (Typetexp.error_of_extension ext))
 
 
 and transl_signature env sg =
@@ -707,15 +704,17 @@ and transl_signature env sg =
                  classes [rem]),
             final_env
         | Psig_attribute x ->
-            let _back = Typetexp.warning_attribute [x] in
+            Typetexp.warning_attribute [x];
             let (trem,rem, final_env) = transl_sig env srem in
             mksig (Tsig_attribute x) env loc :: trem, rem, final_env
-        | Psig_extension ((s, _), _) ->
-            raise (Error (s.loc, env, Extension s.txt))
+        | Psig_extension (ext, _attrs) ->
+            raise (Error_forward (Typetexp.error_of_extension ext))
   in
   let previous_saved_types = Cmt_format.get_saved_types () in
+  Typetexp.warning_enter_scope ();
   let (trem, rem, final_env) = transl_sig (Env.in_signature env) sg in
   let sg = { sig_items = trem; sig_type =  rem; sig_final_env = final_env } in
+  Typetexp.warning_leave_scope ();
   Cmt_format.set_saved_types
     ((Cmt_format.Partial_signature sg) :: previous_saved_types);
   sg
@@ -1027,7 +1026,8 @@ let wrap_constraint env arg mty explicit =
 let rec type_module ?(alias=false) sttn funct_body anchor env smod =
   match smod.pmod_desc with
     Pmod_ident lid ->
-      let path = Typetexp.find_module env smod.pmod_loc lid.txt in
+      let path =
+        Typetexp.lookup_module ~load:(not alias) env smod.pmod_loc lid.txt in
       let md = { mod_desc = Tmod_ident (path, lid);
                  mod_type = Mty_alias path;
                  mod_env = env;
@@ -1152,8 +1152,8 @@ let rec type_module ?(alias=false) sttn funct_body anchor env smod =
            mod_env = env;
            mod_attributes = smod.pmod_attributes;
            mod_loc = smod.pmod_loc }
-  | Pmod_extension (s, _arg) ->
-      raise (Error (s.loc, env, Extension s.txt))
+  | Pmod_extension ext ->
+      raise (Error_forward (Typetexp.error_of_extension ext))
 
 and type_structure ?(toplevel = false) funct_body anchor env sstr scope =
   let type_names = ref StringSet.empty
@@ -1383,10 +1383,10 @@ and type_structure ?(toplevel = false) funct_body anchor env sstr scope =
           }
         in
         Tstr_include incl, sg, new_env
-    | Pstr_extension ((s, _), _) ->
-        raise (Error (s.loc, env, Extension s.txt))
+    | Pstr_extension (ext, _attrs) ->
+        raise (Error_forward (Typetexp.error_of_extension ext))
     | Pstr_attribute x ->
-        let _back = Typetexp.warning_attribute [x] in
+        Typetexp.warning_attribute [x];
         Tstr_attribute x, [], env
   in
   let rec type_struct env sstr =
@@ -1406,8 +1406,10 @@ and type_structure ?(toplevel = false) funct_body anchor env sstr scope =
     (* moved to genannot *)
     List.iter (function {pstr_loc = l} -> Stypes.record_phrase l) sstr;
   let previous_saved_types = Cmt_format.get_saved_types () in
+  Typetexp.warning_enter_scope ();
   let (items, sg, final_env) = type_struct env sstr in
   let str = { str_items = items; str_type = sg; str_final_env = final_env } in
+  Typetexp.warning_leave_scope ();
   Cmt_format.set_saved_types
     (Cmt_format.Partial_structure str :: previous_saved_types);
   str, sg, final_env
@@ -1473,8 +1475,7 @@ let type_module_type_of env smod =
   let tmty =
     match smod.pmod_desc with
     | Pmod_ident lid -> (* turn off strengthening in this case *)
-        let path = Typetexp.find_module env smod.pmod_loc lid.txt in
-        let md = Env.find_module path env in
+        let path, md = Typetexp.find_module env smod.pmod_loc lid.txt in
         rm { mod_desc = Tmod_ident (path, lid);
              mod_type = md.md_type;
              mod_env = env;
@@ -1547,6 +1548,7 @@ let () =
   Typecore.type_package := type_package;
   type_module_type_of_fwd := type_module_type_of
 
+
 (* Typecheck an implementation file *)
 
 let type_implementation sourcefile outputprefix modulename initial_env ast =
@@ -1554,6 +1556,11 @@ let type_implementation sourcefile outputprefix modulename initial_env ast =
   try
   Typecore.reset_delayed_checks ();
   Env.reset_required_globals ();
+  begin
+    let map = Typetexp.emit_external_warnings in
+    ignore (map.Ast_mapper.structure map ast)
+  end;
+
   let (str, sg, finalenv) =
     type_structure initial_env ast (Location.in_file sourcefile) in
   let simple_sg = simplify_signature sg in
@@ -1614,6 +1621,13 @@ let save_signature modname tsg outputprefix source_file initial_env cmi =
   Cmt_format.save_cmt  (outputprefix ^ ".cmti") modname
     (Cmt_format.Interface tsg) (Some source_file) initial_env (Some cmi)
 
+let type_interface env ast =
+  begin
+    let map = Typetexp.emit_external_warnings in
+    ignore (map.Ast_mapper.signature map ast)
+  end;
+  transl_signature env ast
+
 (* "Packaging" of several compilation units into one unit
    having them as sub-modules.  *)
 
@@ -1665,7 +1679,7 @@ let package_units initial_env objfiles cmifile modulename =
     let imports =
       List.filter
         (fun (name, crc) -> not (List.mem name unit_names))
-        (Env.imported_units()) in
+        (Env.imports()) in
     (* Write packaged signature *)
     if not !Clflags.dont_write_files then begin
       let sg =
@@ -1755,8 +1769,6 @@ let report_error ppf = function
         "The type %a in this module cannot be exported.@ " longident lid;
       fprintf ppf
         "Its type contains local dependencies:@ %a" type_expr ty
-  | Extension s ->
-      fprintf ppf "Uninterpreted extension '%s'." s
   | Recursive_module_require_explicit_type ->
       fprintf ppf "Recursive modules require an explicit module type."
   | Apply_generative ->
@@ -1770,6 +1782,8 @@ let () =
     (function
       | Error (loc, env, err) ->
         Some (Location.error_of_printer loc (report_error env) err)
+      | Error_forward err ->
+        Some err
       | _ ->
         None
     )

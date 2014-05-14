@@ -157,8 +157,9 @@ let rec core_type i ppf x =
       line i ppf "Ptyp_object %a\n" fmt_closed_flag c;
       let i = i + 1 in
       List.iter
-        (fun (s, t) ->
-          line i ppf "method %s" s;
+        (fun (s, attrs, t) ->
+          line i ppf "method %s\n" s;
+          attributes i ppf attrs;
           core_type (i + 1) ppf t
         )
         l
@@ -227,6 +228,9 @@ and pattern i ppf x =
       longident_loc i ppf li
   | Ppat_unpack s ->
       line i ppf "Ppat_unpack %a\n" fmt_string_loc s;
+  | Ppat_exception p ->
+      line i ppf "Ppat_exception\n";
+      pattern i ppf p
   | Ppat_extension (s, arg) ->
       line i ppf "Ppat_extension \"%s\"\n" s.txt;
       payload i ppf arg
@@ -804,8 +808,8 @@ and core_type_x_core_type_x_location i ppf (ct1, ct2, l) =
 and constructor_decl i ppf
                      {pcd_name; pcd_args; pcd_res; pcd_loc; pcd_attributes} =
   line i ppf "%a\n" fmt_location pcd_loc;
-  attributes i ppf pcd_attributes;
   line (i+1) ppf "%a\n" fmt_string_loc pcd_name;
+  attributes i ppf pcd_attributes;
   list (i+1) core_type ppf pcd_args;
   option (i+1) core_type ppf pcd_res
 

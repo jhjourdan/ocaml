@@ -30,6 +30,17 @@ code_t * caml_backtrace_buffer = NULL;
 value caml_backtrace_last_exn = Val_unit;
 #define BACKTRACE_BUFFER_SIZE 1024
 
+/* In order to prevent the GC from walking through the debug information
+   (which have no headers), we transform frame_descr pointers into
+   31/63 bits ocaml integers by shifting them by 1 to the right. We do
+   not lose information as descr pointers are aligned.
+
+   In particular, we do not need to use [caml_initialize] when setting
+   an array element with such a value.
+*/
+#define Val_Descrptr(descr) Val_long((uintnat)descr>>1)
+#define Descrptr_Val(v) ((frame_descr *) (Long_val(v)<<1))
+
 /* Start or stop the backtrace machinery */
 
 CAMLprim value caml_record_backtrace(value vflag)
@@ -112,6 +123,7 @@ void caml_stash_backtrace(value exn, uintnat pc, char * sp, char * trapsp)
     caml_backtrace_last_exn = exn;
   }
   if (caml_backtrace_buffer == NULL) {
+    Assert(caml_backtrace_pos == 0);
     caml_backtrace_buffer = malloc(BACKTRACE_BUFFER_SIZE * sizeof(code_t));
     if (caml_backtrace_buffer == NULL) return;
   }
@@ -183,11 +195,7 @@ CAMLprim value caml_get_current_callstack(value max_frames_value) {
     for (trace_pos = 0; trace_pos < trace_size; trace_pos++) {
       frame_descr * descr = caml_next_frame_descriptor(&pc, &sp);
       Assert(descr != NULL);
-      /* The assignment below is safe without [caml_initialize], even
-         if the trace is large and allocated on the old heap, because
-         we assign values that are outside the OCaml heap. */
-      Assert(!(Is_block((value) descr) && Is_in_heap((value) descr)));
-      Field(trace, trace_pos) = Val_long((long)descr>>1);
+      Field(trace, trace_pos) = Val_Descrptr(descr);
     }
   }
 
@@ -315,10 +323,10 @@ CAMLprim value caml_convert_raw_backtrace_slot(value backtrace_slot) {
   struct loc_info li;
 
   if(Is_long(backtrace_slot))
-    extract_location_info((frame_descr *)(Long_val(backtrace_slot)<<1), 0, &li);
+    extract_location_info(Descrptr_Val(backtrace_slot), 0, &li);
   else
-    extract_location_info((frame_descr *)(Long_val(Field(backtrace_slot, 0))<<1),
-                          Long_val(Field(backtrace_slot, 1)), &li);
+    extract_location_info(Descrptr_Val(Field(backtrace_slot, 0)),
+                              Long_val(Field(backtrace_slot, 1)), &li);
 
   if (li.loc_valid) {
     fname = caml_copy_string(li.loc_filename);
@@ -345,9 +353,39 @@ CAMLprim value caml_get_exception_raw_backtrace(value unit)
 
   res = caml_alloc(caml_backtrace_pos, 0);
   if(caml_backtrace_buffer != NULL) {
-    int i;
+    intnat i;
     for(i = 0; i < caml_backtrace_pos; i++)
-      Field(res, i) = Val_long((long)(caml_backtrace_buffer[i])>>1);
+      Field(res, i) = Val_Descrptr(caml_backtrace_buffer[i]);
   }
+  CAMLreturn(res);
+}
+
+/* the function below is deprecated: we previously returned directly
+   the OCaml-usable representation, instead of the raw backtrace as an
+   abstract type, but this has a large performance overhead if you
+   store a lot of backtraces and print only some of them.
+
+   It is not used by the Printexc library anymore, or anywhere else in
+   the compiler, but we have kept it in case some user still depends
+   on it as an external.
+*/
+
+CAMLprim value caml_get_exception_backtrace(value unit)
+{
+  CAMLparam0();
+  CAMLlocal4(arr, raw_slot, slot, res);
+
+  arr = caml_alloc(caml_backtrace_pos, 0);
+  if (caml_backtrace_buffer == NULL) {
+      Assert(caml_backtrace_pos == 0);
+  } else {
+      intnat i;
+      for(i = 0; i < caml_backtrace_pos; i++) {
+          raw_slot = Val_Descrptr(caml_backtrace_buffer[i]);
+          slot = caml_convert_raw_backtrace_slot(raw_slot);
+          caml_modify(&Field(arr, i), slot);
+      }
+  }
+  res = caml_alloc_small(1, 0); Field(res, 0) = arr; /* Some */
   CAMLreturn(res);
 }

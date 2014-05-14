@@ -63,7 +63,7 @@ type error =
   | Unbound_cltype of Longident.t
   | Ill_typed_functor_application of Longident.t
   | Illegal_reference_to_recursive_module
-  | Extension of string
+  | Access_functor_as_structure of Longident.t
 
 exception Error of Location.t * Env.t * error
 
@@ -96,7 +96,9 @@ val find_value:
 val find_class:
     Env.t -> Location.t -> Longident.t -> Path.t * class_declaration
 val find_module:
-    Env.t -> Location.t -> Longident.t -> Path.t
+    Env.t -> Location.t -> Longident.t -> Path.t * module_declaration
+val lookup_module:
+    ?load:bool -> Env.t -> Location.t -> Longident.t -> Path.t
 val find_modtype:
     Env.t -> Location.t -> Longident.t -> Path.t * modtype_declaration
 val find_class_type:
@@ -113,4 +115,10 @@ val spellcheck_simple:
 
 val check_deprecated: Location.t -> Parsetree.attributes -> string -> unit
 
-val warning_attribute: Parsetree.attributes -> Warnings.state option
+val warning_enter_scope: unit -> unit
+val warning_leave_scope: unit -> unit
+val warning_attribute: Parsetree.attributes -> unit
+
+val error_of_extension: Parsetree.extension -> Location.error
+
+val emit_external_warnings: Ast_mapper.mapper

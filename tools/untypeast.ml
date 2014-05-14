@@ -166,7 +166,7 @@ and untype_extension_constructor ext =
         Text_decl (args, ret) ->
           Pext_decl (List.map untype_core_type args,
                      option untype_core_type ret)
-      | Text_rebind (p, lid) -> Pext_rebind lid
+      | Text_rebind (_p, lid) -> Pext_rebind lid
     );
     pext_loc = ext.ext_loc;
     pext_attributes = ext.ext_attributes;
@@ -274,8 +274,18 @@ and untype_expression exp =
                 None -> list
               | Some exp -> (label, untype_expression exp) :: list
           ) list [])
-    | Texp_match (exp, cases, _) ->
-        Pexp_match (untype_expression exp, untype_cases cases)
+    | Texp_match (exp, cases, exn_cases, _) ->
+      let merged_cases = untype_cases cases
+        @ List.map
+          (fun c ->
+            let uc = untype_case c in
+            let pat = { uc.pc_lhs
+                        with ppat_desc = Ppat_exception uc.pc_lhs }
+            in
+            { uc with pc_lhs = pat })
+          exn_cases
+      in 
+      Pexp_match (untype_expression exp, merged_cases)
     | Texp_try (exp, cases) ->
         Pexp_try (untype_expression exp, untype_cases cases)
     | Texp_tuple list ->
@@ -558,7 +568,8 @@ and untype_core_type ct =
         Ptyp_constr (lid,
           List.map untype_core_type list)
     | Ttyp_object (list, o) ->
-        Ptyp_object (List.map (fun (s, t) -> (s, untype_core_type t)) list, o)
+        Ptyp_object
+          (List.map (fun (s, a, t) -> (s, a, untype_core_type t)) list, o)
     | Ttyp_class (_path, lid, list) ->
         Ptyp_class (lid, List.map untype_core_type list)
     | Ttyp_alias (ct, s) ->

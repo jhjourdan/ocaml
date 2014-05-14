@@ -41,7 +41,7 @@ type mapper = {
                            -> constructor_declaration;
   expr: mapper -> expression -> expression;
   extension: mapper -> extension -> extension;
-  extension_constructor : mapper -> extension_constructor -> extension_constructor;
+  extension_constructor: mapper -> extension_constructor -> extension_constructor;
   include_declaration: mapper -> include_declaration -> include_declaration;
   include_description: mapper -> include_description -> include_description;
   label_declaration: mapper -> label_declaration -> label_declaration;
@@ -61,7 +61,7 @@ type mapper = {
   structure_item: mapper -> structure_item -> structure_item;
   typ: mapper -> core_type -> core_type;
   type_declaration: mapper -> type_declaration -> type_declaration;
-  type_extension : mapper -> type_extension -> type_extension;
+  type_extension: mapper -> type_extension -> type_extension;
   type_kind: mapper -> type_kind -> type_kind;
   value_binding: mapper -> value_binding -> value_binding;
   value_description: mapper -> value_description -> value_description;
@@ -97,7 +97,8 @@ module T = struct
     | Ptyp_constr (lid, tl) ->
         constr ~loc ~attrs (map_loc sub lid) (List.map (sub.typ sub) tl)
     | Ptyp_object (l, o) ->
-        object_ ~loc ~attrs (List.map (map_snd (sub.typ sub)) l) o
+        let f (s, a, t) = (s, sub.attributes sub a, sub.typ sub t) in
+        object_ ~loc ~attrs (List.map f l) o
     | Ptyp_class (lid, tl) ->
         class_ ~loc ~attrs (map_loc sub lid) (List.map (sub.typ sub) tl)
     | Ptyp_alias (t, s) -> alias ~loc ~attrs (sub.typ sub t) s
@@ -397,6 +398,7 @@ module P = struct
     | Ppat_type s -> type_ ~loc ~attrs (map_loc sub s)
     | Ppat_lazy p -> lazy_ ~loc ~attrs (sub.pat sub p)
     | Ppat_unpack s -> unpack ~loc ~attrs (map_loc sub s)
+    | Ppat_exception p -> exception_ ~loc ~attrs (sub.pat sub p)
     | Ppat_extension x -> extension ~loc ~attrs (sub.extension sub x)
 end
 
@@ -610,7 +612,15 @@ let default_mapper =
       );
   }
 
+let rec extension_of_error {loc; msg; if_highlight; sub} =
+  { loc; txt = "ocaml.error" },
+  PStr ([Str.eval (Exp.constant (Asttypes.Const_string (msg, None)));
+         Str.eval (Exp.constant (Asttypes.Const_string (if_highlight, None)))] @
+        (List.map (fun ext -> Str.extension (extension_of_error ext)) sub))
 
+let attribute_of_warning loc s =
+  { loc; txt = "ocaml.ppwarning" },
+  PStr ([Str.eval ~loc (Exp.constant (Asttypes.Const_string (s, None)))])
 
 let apply ~source ~target mapper =
   let ic = open_in_bin source in
@@ -619,15 +629,25 @@ let apply ~source ~target mapper =
   in
   if magic <> Config.ast_impl_magic_number
   && magic <> Config.ast_intf_magic_number then
-    failwith "Ast_mapper: unknown magic number";
+    failwith "Ast_mapper: OCaml version mismatch or malformed input";
   Location.input_name := input_value ic;
   let ast = input_value ic in
   close_in ic;
 
   let ast =
-    if magic = Config.ast_impl_magic_number
-    then Obj.magic (mapper.structure mapper (Obj.magic ast))
-    else Obj.magic (mapper.signature mapper (Obj.magic ast))
+    try
+      if magic = Config.ast_impl_magic_number
+      then Obj.magic (mapper.structure mapper (Obj.magic ast))
+      else Obj.magic (mapper.signature mapper (Obj.magic ast))
+    with exn ->
+      match error_of_exn exn with
+      | Some error ->
+          if magic = Config.ast_impl_magic_number
+          then Obj.magic [{pstr_desc = Pstr_extension (extension_of_error error, []);
+                           pstr_loc  = Location.none}]
+          else Obj.magic [{psig_desc = Psig_extension (extension_of_error error, []);
+                           psig_loc  = Location.none}]
+      | None -> raise exn
   in
   let oc = open_out_bin target in
   output_string oc magic;
@@ -648,9 +668,7 @@ let run_main mapper =
       exit 2
     end
   with exn ->
-    begin try Location.report_exception Format.err_formatter exn
-    with exn -> prerr_endline (Printexc.to_string exn)
-    end;
+    prerr_endline (Printexc.to_string exn);
     exit 2
 
 let register_function = ref (fun _name f -> run_main f)

@@ -112,9 +112,10 @@ let expression sub exp =
   | Texp_apply (exp, list) ->
       sub # expression exp;
       List.iter (fun (_, expo, _) -> opt (sub # expression) expo) list
-  | Texp_match (exp, cases, _) ->
+  | Texp_match (exp, cases, exn_cases, _) ->
       sub # expression exp;
-      sub # cases cases
+      sub # cases cases;
+      sub # cases exn_cases
   | Texp_try (exp, cases) ->
       sub # expression exp;
       sub # cases cases
@@ -303,7 +304,7 @@ let core_type sub ct =
   | Ttyp_constr (_path, _, list) ->
       List.iter (sub # core_type) list
   | Ttyp_object (list, _o) ->
-      List.iter (fun (_, t) -> sub # core_type t) list
+      List.iter (fun (_, _, t) -> sub # core_type t) list
   | Ttyp_class (_path, _, list) ->
       List.iter (sub # core_type) list
   | Ttyp_alias (ct, _s) ->

@@ -171,8 +171,9 @@ let rec core_type i ppf x =
       line i ppf "Ptyp_object %a\n" fmt_closed_flag c;
       let i = i + 1 in
       List.iter
-        (fun (s, t) ->
-          line i ppf "method %s" s;
+        (fun (s, attrs, t) ->
+          line i ppf "method %s\n" s;
+          attributes i ppf attrs;
           core_type (i + 1) ppf t
         )
         l
@@ -288,10 +289,11 @@ and expression i ppf x =
       line i ppf "Pexp_apply\n";
       expression i ppf e;
       list i label_x_expression ppf l;
-  | Texp_match (e, l, partial) ->
+  | Texp_match (e, l1, l2, partial) ->
       line i ppf "Pexp_match\n";
       expression i ppf e;
-      list i case ppf l;
+      list i case ppf l1;
+      list i case ppf l2;
   | Texp_try (e, l) ->
       line i ppf "Pexp_try\n";
       expression i ppf e;
@@ -778,8 +780,8 @@ and core_type_x_core_type_x_location i ppf (ct1, ct2, l) =
 
 and constructor_decl i ppf {cd_id; cd_name = _; cd_args; cd_res; cd_loc; cd_attributes} =
   line i ppf "%a\n" fmt_location cd_loc;
-  attributes i ppf cd_attributes;
   line (i+1) ppf "%a\n" fmt_ident cd_id;
+  attributes i ppf cd_attributes;
   list (i+1) core_type ppf cd_args;
   option (i+1) core_type ppf cd_res
 

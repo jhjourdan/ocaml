@@ -208,6 +208,9 @@ let mk_o f =
   "-o", Arg.String f, "<file>  Set output file name to <file>"
 ;;
 
+let mk_open f =
+  "-open", Arg.String f, "<module>  Opens the module <module> before typing"
+
 let mk_output_obj f =
   "-output-obj", Arg.Unit f, " Output a C object file instead of an executable"
 ;;
@@ -456,6 +459,7 @@ module type Common_options = sig
   val _noassert : unit -> unit
   val _nolabels : unit -> unit
   val _nostdlib : unit -> unit
+  val _open : string -> unit
   val _ppx : string -> unit
   val _principal : unit -> unit
   val _rectypes : unit -> unit
@@ -628,6 +632,7 @@ struct
     mk_nolabels F._nolabels;
     mk_nostdlib F._nostdlib;
     mk_o F._o;
+    mk_open F._open;
     mk_output_obj F._output_obj;
     mk_pack_byt F._pack;
     mk_pp F._pp;
@@ -680,6 +685,7 @@ struct
     mk_noprompt F._noprompt;
     mk_nopromptcont F._nopromptcont;
     mk_nostdlib F._nostdlib;
+    mk_open F._open;
     mk_ppx F._ppx;
     mk_principal F._principal;
     mk_rectypes F._rectypes;
@@ -739,6 +745,7 @@ struct
     mk_nolabels F._nolabels;
     mk_nostdlib F._nostdlib;
     mk_o F._o;
+    mk_open F._open;
     mk_output_obj F._output_obj;
     mk_p F._p;
     mk_pack_opt F._pack;
@@ -805,6 +812,7 @@ module Make_opttop_options (F : Opttop_options) = struct
     mk_noprompt F._noprompt;
     mk_nopromptcont F._nopromptcont;
     mk_nostdlib F._nostdlib;
+    mk_open F._open;
     mk_ppx F._ppx;
     mk_principal F._principal;
     mk_rectypes F._rectypes;

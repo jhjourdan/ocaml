@@ -263,9 +263,10 @@ module MakeIterator(Iter : IteratorArgument) : sig
                   None -> ()
                 | Some exp -> iter_expression exp
             ) list
-        | Texp_match (exp, list, _) ->
+        | Texp_match (exp, list1, list2, _) ->
             iter_expression exp;
-            iter_cases list
+            iter_cases list1;
+            iter_cases list2;
         | Texp_try (exp, list) ->
             iter_expression exp;
             iter_cases list
@@ -536,7 +537,7 @@ module MakeIterator(Iter : IteratorArgument) : sig
         | Ttyp_constr (path, _, list) ->
             List.iter iter_core_type list
         | Ttyp_object (list, o) ->
-            List.iter (fun (_, t) -> iter_core_type t) list
+            List.iter (fun (_, _, t) -> iter_core_type t) list
         | Ttyp_class (path, _, list) ->
             List.iter iter_core_type list
         | Ttyp_alias (ct, s) ->

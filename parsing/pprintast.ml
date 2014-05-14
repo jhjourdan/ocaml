@@ -126,19 +126,6 @@ let is_simple_construct :construct -> bool = function
 
 let pp = fprintf
 
-let rec is_irrefut_patt x =
-  match x.ppat_desc with
-  | Ppat_any | Ppat_var _ | Ppat_unpack _ -> true
-  | Ppat_alias (p,_) -> is_irrefut_patt p
-  | Ppat_tuple (ps) -> List.for_all is_irrefut_patt ps
-  | Ppat_constraint (p,_) -> is_irrefut_patt p
-  | Ppat_or (l,r) -> is_irrefut_patt l || is_irrefut_patt r
-  | Ppat_record (ls,_) -> List.for_all (fun (_,x) -> is_irrefut_patt x) ls
-  | Ppat_lazy p -> is_irrefut_patt p
-  | Ppat_extension _ -> assert false
-  | Ppat_interval _
-  | Ppat_constant _ | Ppat_construct _  | Ppat_variant _ | Ppat_array _
-  | Ppat_type _-> false (*conservative*)
 class printer  ()= object(self:'self)
   val pipe = false
   val semi = false
@@ -163,9 +150,9 @@ class printer  ()= object(self:'self)
             | xs ->
                 let rec loop  f = function
                   | [x] -> fu f x
-                  | x::xs ->  pp f "%a%(%)%a" fu x sep loop xs
+                  | x::xs ->  fu f x; pp f sep; loop f xs;
                   | _ -> assert false in begin
-                      pp f "%(%)%a%(%)" first loop xs last;
+                      pp f first; loop f xs; pp f last;
                   end in
           aux f xs
   method option : 'a. ?first:space_formatter -> ?last:space_formatter ->
@@ -175,11 +162,11 @@ class printer  ()= object(self:'self)
         and last = match last with Some x -> x | None -> "" in
         match a with
         | None -> ()
-        | Some x -> pp f "%(%)%a%(%)" first fu x last
+        | Some x -> pp f first; fu f x; pp f last;
   method paren: 'a . ?first:space_formatter -> ?last:space_formatter ->
     bool -> (Format.formatter -> 'a -> unit) -> Format.formatter -> 'a -> unit =
     fun  ?(first="") ?(last="") b fu f x ->
-      if b then pp f "(%(%)%a%(%))" first fu  x last
+      if b then (pp f first; fu f x; pp f last)
       else fu f x
 
 
@@ -307,7 +294,7 @@ class printer  ()= object(self:'self)
               pp f ">@ %a"
                 (self#list self#string_quot) xs) low
     | Ptyp_object (l, o) ->
-        let core_field_type f (s, ct) =
+        let core_field_type f (s, _attrs, ct) =
           pp f "@[<hov2>%s@ :%a@ @]" s self#core_type ct
         in
         let field_var f = function
@@ -407,6 +394,8 @@ class printer  ()= object(self:'self)
         pp f "@[<2>(%a@;:@;%a)@]" self#pattern1 p self#core_type ct
     | Ppat_lazy p ->
         pp f "@[<2>(lazy@;%a)@]" self#pattern1 p
+    | Ppat_exception p ->
+        pp f "@[<2>exception@;%a@]" self#pattern1 p
     | _ -> self#paren true self#pattern f x
 
   method label_exp f (l,opt,p) =

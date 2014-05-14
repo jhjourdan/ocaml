@@ -76,7 +76,7 @@ and expression_desc =
   | Texp_let of rec_flag * value_binding list * expression
   | Texp_function of label * case list * partial
   | Texp_apply of expression * (label * expression option * optional) list
-  | Texp_match of expression * case list * partial
+  | Texp_match of expression * case list * case list * partial
   | Texp_try of expression * case list
   | Texp_tuple of expression list
   | Texp_construct of
@@ -348,7 +348,7 @@ and core_type_desc =
   | Ttyp_arrow of label * core_type * core_type
   | Ttyp_tuple of core_type list
   | Ttyp_constr of Path.t * Longident.t loc * core_type list
-  | Ttyp_object of (string * core_type) list * closed_flag
+  | Ttyp_object of (string * attributes * core_type) list * closed_flag
   | Ttyp_class of Path.t * Longident.t loc * core_type list
   | Ttyp_alias of core_type * string
   | Ttyp_variant of row_field list * closed_flag * label list option
