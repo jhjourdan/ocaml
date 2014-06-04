@@ -135,21 +135,18 @@ let emit_external_warnings =
 let warning_scope = ref []
 
 let warning_enter_scope () =
-  warning_scope := ref None :: !warning_scope
+  warning_scope := (Warnings.backup ()) :: !warning_scope
 let warning_leave_scope () =
   match !warning_scope with
   | [] -> assert false
   | hd :: tl ->
-      may Warnings.restore !hd;
+      Warnings.restore hd;
       warning_scope := tl
 
 let warning_attribute attrs =
-  let prev_warnings = List.hd !warning_scope in
   let process loc txt errflag payload =
     match string_of_payload payload with
     | Some s ->
-        if !prev_warnings = None then
-          prev_warnings := Some (Warnings.backup ());
         begin try Warnings.parse_options errflag s
         with Arg.Bad _ ->
           Location.prerr_warning loc
@@ -427,6 +424,8 @@ let rec transl_type env policy styp =
     let ty = newty (Tarrow(l, cty1.ctyp_type, cty2.ctyp_type, Cok)) in
     ctyp (Ttyp_arrow (l, cty1, cty2)) ty
   | Ptyp_tuple stl ->
+    if List.length stl < 2 then
+      Syntaxerr.ill_formed_ast loc "Tuples must have at least 2 components.";
     let ctys = List.map (transl_type env policy) stl in
     let ty = newty (Ttuple (List.map (fun ctyp -> ctyp.ctyp_type) ctys)) in
     ctyp (Ttyp_tuple ctys) ty
