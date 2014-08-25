@@ -251,4 +251,36 @@ let () = test "PluginTagsWarning"
                 in absence of plugin file \"myocamlbuild.ml\""
   ~targets:("main.ml", []) ();;
 
+let () = test "TagsInNonHygienic"
+  ~description:"Regression test for PR#6482, where a _tags \
+                in a non-traversed directory would cause \
+                ocamlbuild to abort"
+  ~options:[`no_ocamlfind]
+  ~tree:[
+    T.f "main.ml" ~content:"";
+    T.d "deps" [T.f "_tags" ~content:""];
+    T.f "_tags" ~content:"<deps>: not_hygienic\n";
+  ]
+  ~matching:[M.f "main.byte"]
+  ~targets:("main.byte",[]) ();;
+
+let () = test "TagsNewlines"
+  ~description:"Regression test for PR#6087 about placement \
+                of newline-escaping backslashes"
+  ~options:[`no_ocamlfind]
+  ~tree:[
+    T.f "main.ml" ~content:"";
+    T.f "_tags" ~content:
+"<foo>: debug,\\
+rectypes
+<bar>: \\
+debug, rectypes
+<baz>\\
+: debug, rectypes
+";
+  ]
+  ~matching:[M.f "main.byte"]
+  ~targets:("main.byte",[]) ();;
+
+
 run ~root:"_test_internal";;
