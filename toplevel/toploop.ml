@@ -327,7 +327,10 @@ let phrase ppf phr =
   let phr =
     match phr with
     | Ptop_def str ->
-        Ptop_def (Pparse.apply_rewriters ~tool_name:"ocaml" ast_impl_magic_number str)
+        let str =
+          Pparse.apply_rewriters_str ~restore:true ~tool_name:"ocaml" str
+        in
+        Ptop_def str
     | phr -> phr
   in
   if !Clflags.dump_parsetree then Printast.top_phrase ppf phr;
@@ -429,7 +432,7 @@ let _ =
   Compmisc.init_path false;
   List.iter
     (fun (name, crco) ->
-      Env.imported_units := name :: !Env.imported_units;
+      Env.add_import name;
       match crco with
         None -> ()
       | Some crc->

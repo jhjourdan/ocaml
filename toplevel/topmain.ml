@@ -41,6 +41,7 @@ let file_argument name =
       let newargs = Array.sub Sys.argv !Arg.current
                               (Array.length Sys.argv - !Arg.current)
       in
+      Compenv.readenv ppf Before_link;
       if prepare ppf && Toploop.run_script ppf name newargs
       then exit 0
       else exit 2
@@ -82,6 +83,7 @@ module Options = Main_args.Make_bytetop_options (struct
   let _short_paths = clear real_paths
   let _stdin () = file_argument ""
   let _strict_sequence = set strict_sequence
+  let _strict_formats = set strict_formats
   let _unsafe = set fast
   let _unsafe_string = set unsafe_string
   let _version () = print_version ()

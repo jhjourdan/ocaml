@@ -453,6 +453,15 @@ let mk_opaque f =
   \     (reduces necessary recompilation on module change)"
 ;;
 
+let mk_strict_formats f =
+  "-strict-formats", Arg.Unit f,
+  " Reject invalid formats accepted by legacy implementations\n\
+  \     (Warning: Invalid formats may behave differently from\n\
+  \      previous OCaml versions, and will become always-rejected\n\
+  \      in future OCaml versions. You should use this flag\n\
+  \      to detect and fix invalid formats.)"
+;;
+
 let mk__ f =
   "-", Arg.String f,
   "<file>  Treat <file> as a file name (even if it starts with `-')"
@@ -474,6 +483,7 @@ module type Common_options = sig
   val _safe_string : unit -> unit
   val _short_paths : unit -> unit
   val _strict_sequence : unit -> unit
+  val _strict_formats : unit -> unit
   val _unsafe : unit -> unit
   val _unsafe_string : unit -> unit
   val _version : unit -> unit
@@ -491,7 +501,7 @@ module type Common_options = sig
   val anonymous : string -> unit
 end;;
 
-module type Compiler_options =  sig
+module type Compiler_options = sig
   val _a : unit -> unit
   val _annot : unit -> unit
   val _binannot : unit -> unit
@@ -598,6 +608,22 @@ module type Opttop_options = sig
   val _stdin : unit -> unit
 end;;
 
+module type Ocamldoc_options = sig
+  include Common_options
+  val _impl : string -> unit
+  val _intf : string -> unit
+  val _intf_suffix : string -> unit
+  val _pp : string -> unit
+  val _principal : unit -> unit
+  val _rectypes : unit -> unit
+  val _safe_string : unit -> unit
+  val _short_paths : unit -> unit
+  val _thread : unit -> unit
+  val _v : unit -> unit
+  val _verbose : unit -> unit
+  val _vmthread : unit -> unit
+end;;
+
 module type Arg_list = sig
     val list : (string * Arg.spec * string) list
 end;;
@@ -651,6 +677,7 @@ struct
     mk_safe_string F._safe_string;
     mk_short_paths F._short_paths;
     mk_strict_sequence F._strict_sequence;
+    mk_strict_formats F._strict_formats;
     mk_thread F._thread;
     mk_unsafe F._unsafe;
     mk_unsafe_string F._unsafe_string;
@@ -701,6 +728,7 @@ struct
     mk_short_paths F._short_paths;
     mk_stdin F._stdin;
     mk_strict_sequence F._strict_sequence;
+    mk_strict_formats F._strict_formats;
     mk_unsafe F._unsafe;
     mk_unsafe_string F._unsafe_string;
     mk_version F._version;
@@ -767,6 +795,7 @@ struct
     mk_shared F._shared;
     mk_short_paths F._short_paths;
     mk_strict_sequence F._strict_sequence;
+    mk_strict_formats F._strict_formats;
     mk_thread F._thread;
     mk_unsafe F._unsafe;
     mk_unsafe_string F._unsafe_string;
@@ -830,6 +859,7 @@ module Make_opttop_options (F : Opttop_options) = struct
     mk_short_paths F._short_paths;
     mk_stdin F._stdin;
     mk_strict_sequence F._strict_sequence;
+    mk_strict_formats F._strict_formats;
     mk_unsafe F._unsafe;
     mk_unsafe_string F._unsafe_string;
     mk_version F._version;
@@ -858,5 +888,42 @@ module Make_opttop_options (F : Opttop_options) = struct
     mk_dscheduling F._dscheduling;
     mk_dlinear F._dlinear;
     mk_dstartup F._dstartup;
+  ]
+end;;
+
+module Make_ocamldoc_options (F : Ocamldoc_options) =
+struct
+  let list = [
+    mk_absname F._absname;
+    mk_I F._I;
+    mk_impl F._impl;
+    mk_intf F._intf;
+    mk_intf_suffix F._intf_suffix;
+    mk_intf_suffix_2 F._intf_suffix;
+    mk_labels F._labels;
+    mk_modern F._labels;
+    mk_no_alias_deps F._no_alias_deps;
+    mk_no_app_funct F._no_app_funct;
+    mk_noassert F._noassert;
+    mk_nolabels F._nolabels;
+    mk_nostdlib F._nostdlib;
+    mk_open F._open;
+    mk_pp F._pp;
+    mk_ppx F._ppx;
+    mk_principal F._principal;
+    mk_rectypes F._rectypes;
+    mk_safe_string F._safe_string;
+    mk_short_paths F._short_paths;
+    mk_strict_sequence F._strict_sequence;
+    mk_strict_formats F._strict_formats;
+    mk_thread F._thread;
+    mk_unsafe_string F._unsafe_string;
+    mk_v F._v;
+    mk_verbose F._verbose;
+    mk_version F._version;
+    mk_vmthread F._vmthread;
+    mk_vnum F._vnum;
+    mk_w F._w;
+    mk__ F.anonymous;
   ]
 end;;
