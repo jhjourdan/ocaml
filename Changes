@@ -1,7 +1,42 @@
 OCaml 4.02.2:
 -------------
 
+Toplevel and debugger:
+- PR#5958: generalized polymorphic #install_printer
+  (Pierre Chambart and Grégoire Henry)
+
+OCamlbuild:
+- PR#6237: explicit "infer" tag to control or disable menhir --infer
+  (Hugo Heuzard)
+- PR#6625: pass -linkpkg to files built with -output-obj.
+  (Peter Zotov)
+- PR#6702: explicit "linkpkg" and "dontlink(foo)" flags
+  (Peter Zotov, Gabriel Scherer)
+- PR#6712: Ignore common VCS directories
+  (Peter Zotov)
+- PR#6720: pass -g to C compilers when tag 'debug' is set
+  (Peter Zotov, Gabriel Scherer)
+
+Bug fixes:
+- PR#5836, PR#6684: printing lazy values in ocamldebug may segfault
+  (Gabriel Scherer)
+- PR#6616: allow meaningful use of -use-runtime without -custom.
+  (Peter Zotov)
 - PR#6628: Configure script rejects legitimate arguments
+  (Michael Grünewald, Damien Doligez)
+- PR#6640: ocamlbuild: wrong "unused tag" warning on "precious"
+  (report by user 'william')
+- PR#6669: fix 4.02 regression in toplevel printing of lazy values
+  (Leo White, review by Gabriel Scherer)
+- PR#6680: Missing parentheses when printing polymorphic variant value in warning
+- PR#6690: Uncaught exception (Not_found) with (wrong) wildcard or unification
+           type variable in place of a local abstract type
+- PR#6717: Pprintast does not print let-pattern attributes
+  (Gabriel Scherer, report by Peter Zotov)
+- ocamlbuild on cygwin cannot find ocamlfind
+  (user 'algoriddle')
+- allow android build with pthreads support (since SDK r10c)
+  (Peter Zotov)
 
 OCaml 4.02.1:
 -------------
@@ -81,7 +116,7 @@ Language features:
   (Alain Frisch)
 - Generative functors (PR#5905)
   (Jacques Garrigue)
-- Module aliases
+* Module aliases
   (Jacques Garrigue)
 * Alternative syntax for string literals {id|...|id} (can break comments)
   (Alain Frisch)
@@ -112,8 +147,8 @@ Type system:
   an applicative functor if no types are created
   (Jacques Garrigue, suggestion by Leo White)
 * Module aliases are now typed in a specific way, which remembers their
-  identity. In particular this changes the signature inferred by
-  "module type of"
+  identity. Compiled interfaces become smaller, but may depend on the
+  original modules. This also changes the signature inferred by "module type of".
   (Jacques Garrigue, feedback from Leo White, Mark Shinwell and Nick Chapman)
 - PR#6331: Slight change in the criterion to distinguish private
   abbreviations and private row types: create a private abbreviation for

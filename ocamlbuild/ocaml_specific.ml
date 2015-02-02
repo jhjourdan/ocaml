@@ -530,6 +530,7 @@ flag ["ocaml"; "doc"] (atomize !Options.ocaml_docflags);;
 
 (* Tell menhir to explain conflicts *)
 flag [ "ocaml" ; "menhir" ; "explain" ] (S[A "--explain"]);;
+flag [ "ocaml" ; "menhir" ; "infer" ] (S[A "--infer"]);;
 
 flag ["ocaml"; "ocamllex"] (atomize !Options.ocaml_lexflags);;
 
@@ -558,6 +559,15 @@ let () =
     (* Ocamlfind will link the archives for us. *)
     flag ["ocaml"; "link"; "program"] & A"-linkpkg";
     flag ["ocaml"; "link"; "toplevel"] & A"-linkpkg";
+    flag ["ocaml"; "link"; "output_obj"] & A"-linkpkg";
+
+    (* "program" will make sure that -linkpkg is passed when compiling
+       whole-programs (.byte and .native); but it is occasionally
+       useful to pass -linkpkg when building archives for example
+       (.cma and .cmxa); the "linkpkg" flag allows user to request it
+       explicitly. *)
+    flag ["ocaml"; "link"; "linkpkg"] & A"-linkpkg";
+    pflag ["ocaml"; "link"] "dontlink" (fun pkg -> S[A"-dontlink"; A pkg]);
 
     let all_tags = [
       ["ocaml"; "byte"; "compile"];
@@ -666,6 +676,8 @@ flag ["ocaml"; "debug"; "pack"; "byte"] (A "-g");;
 flag ["ocaml"; "debug"; "compile"; "native"] (A "-g");;
 flag ["ocaml"; "debug"; "link"; "native"; "program"] (A "-g");;
 flag ["ocaml"; "debug"; "pack"; "native"] (A "-g");;
+flag ["c";     "debug"; "compile"] (A "-g");
+flag ["c";     "debug"; "link"] (A "-g");
 flag ["ocaml"; "link"; "native"; "output_obj"] (A"-output-obj");;
 flag ["ocaml"; "link"; "byte"; "output_obj"] (A"-output-obj");;
 flag ["ocaml"; "dtypes"; "compile"] (A "-dtypes");;
