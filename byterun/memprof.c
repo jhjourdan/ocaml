@@ -1,14 +1,14 @@
 #include <math.h>
 #include <string.h>
-#include "memprof.h"
-#include "backtrace.h"
-#include "signals.h"
-#include "stacks.h"
-#include "fail.h"
-#include "memory.h"
-#include "alloc.h"
-#include "hash.h"
-#include "callback.h"
+#include "caml/memprof.h"
+#include "caml/backtrace.h"
+#include "caml/signals.h"
+#include "caml/stacks.h"
+#include "caml/fail.h"
+#include "caml/memory.h"
+#include "caml/alloc.h"
+#include "caml/hash.h"
+#include "caml/callback.h"
 
 static uint32 mt_state[624];
 static uint32 mt_index;

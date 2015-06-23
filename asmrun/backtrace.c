@@ -17,11 +17,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "alloc.h"
-#include "backtrace.h"
-#include "memory.h"
-#include "misc.h"
-#include "mlvalues.h"
+#include "caml/alloc.h"
+#include "caml/backtrace.h"
+#include "caml/memory.h"
+#include "caml/misc.h"
+#include "caml/mlvalues.h"
 #include "stack.h"
 
 int caml_backtrace_active = 0;
@@ -204,17 +204,8 @@ CAMLprim value caml_get_current_callstack(value max_frames_value) {
 
 /* Extract location information for the given frame descriptor */
 
-struct loc_info {
-  int loc_valid;
-  int loc_is_raise;
-  char * loc_filename;
-  int loc_lnum;
-  int loc_startchr;
-  int loc_endchr;
-};
-
-static void extract_location_info(frame_descr * d, intnat alloc_id,
-                                  /*out*/ struct loc_info * li)
+CAMLexport void extract_location_info(frame_descr * d, intnat alloc_id,
+                                      /*out*/ struct caml_loc_info * li)
 {
   uintnat infoptr;
   uint32 info1, info2;
@@ -274,7 +265,7 @@ static void extract_location_info(frame_descr * d, intnat alloc_id,
    useless. We kept it to keep code identical to the byterun/
    implementation. */
 
-static void print_location(struct loc_info * li, int index)
+static void print_location(struct caml_loc_info * li, int index)
 {
   char * info;
 
@@ -307,7 +298,7 @@ static void print_location(struct loc_info * li, int index)
 void caml_print_exception_backtrace(void)
 {
   int i;
-  struct loc_info li;
+  struct caml_loc_info li;
 
   for (i = 0; i < caml_backtrace_pos; i++) {
     extract_location_info((frame_descr *) (caml_backtrace_buffer[i]), 0, &li);
@@ -320,7 +311,7 @@ void caml_print_exception_backtrace(void)
 CAMLprim value caml_convert_raw_backtrace_slot(value backtrace_slot) {
   CAMLparam1(backtrace_slot);
   CAMLlocal2(p, fname);
-  struct loc_info li;
+  struct caml_loc_info li;
 
   if(Is_long(backtrace_slot))
     extract_location_info(Descrptr_Val(backtrace_slot), 0, &li);

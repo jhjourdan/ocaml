@@ -19,14 +19,14 @@
 #include <signal.h>
 #include <errno.h>
 #include <stdio.h>
-#include "fail.h"
-#include "memory.h"
-#include "osdeps.h"
-#include "signals.h"
-#include "signals_machdep.h"
+#include "caml/fail.h"
+#include "caml/memory.h"
+#include "caml/osdeps.h"
+#include "caml/signals.h"
+#include "caml/signals_machdep.h"
 #include "signals_osdep.h"
 #include "stack.h"
-#include "memprof.h"
+#include "caml/memprof.h"
 
 #ifdef HAS_STACK_OVERFLOW_DETECTION
 #include <sys/time.h>
@@ -48,6 +48,8 @@ extern void caml_win32_overflow_detection();
 extern char * caml_code_area_start, * caml_code_area_end;
 extern char caml_system__code_begin, caml_system__code_end;
 
+/* Do not use the macro from address_class.h here. */
+#undef Is_in_code_area
 #define Is_in_code_area(pc) \
  ( ((char *)(pc) >= caml_code_area_start && \
     (char *)(pc) <= caml_code_area_end)     \
