@@ -2969,7 +2969,6 @@ let compile_matching loc repr handler_fun arg pat_act_list partial =
 
 
 let partial_function loc () =
-  let loc = if !Clflags.debug then loc else Location.none in
   (* [Location.get_pos_info] is too expensive *)
   let (fname, line, char) = Location.get_pos_info loc.Location.loc_start in
   Lprim(Praise Raise_regular, [Lprim(Pmakeblock(0, Immutable, loc),
@@ -3075,7 +3074,6 @@ let compile_flattened repr partial ctx _ pmh = match pmh with
 | PmVar _ -> assert false
 
 let do_for_multiple_match loc paraml pat_act_list partial tuple_loc =
-  let tuple_loc = if !Clflags.debug then tuple_loc else Location.none in
   let repr = None in
   let partial = check_partial pat_act_list partial in
   let raise_num,pm1 =
