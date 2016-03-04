@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                             OCamldoc                                *)
-(*                                                                     *)
-(*            Maxence Guesdon, projet Cristal, INRIA Rocquencourt      *)
-(*                                                                     *)
-(*  Copyright 2001 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Maxence Guesdon, projet Cristal, INRIA Rocquencourt        *)
+(*                                                                        *)
+(*   Copyright 2001 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 let no_blanks s =
   let len = String.length s in
@@ -223,9 +226,9 @@ let apply_opt f v_opt =
     None -> None
   | Some v -> Some (f v)
 
-let string_of_date ?(hour=true) d =
+let string_of_date ?(absolute=false) ?(hour=true) d =
   let add_0 s = if String.length s < 2 then "0"^s else s in
-  let t = Unix.localtime d in
+  let t = (if absolute then Unix.gmtime else Unix.localtime) d in
   (string_of_int (t.Unix.tm_year + 1900))^"-"^
   (add_0 (string_of_int (t.Unix.tm_mon + 1)))^"-"^
   (add_0 (string_of_int t.Unix.tm_mday))^
@@ -237,6 +240,14 @@ let string_of_date ?(hour=true) d =
    else
      ""
   )
+
+let current_date =
+  let time =
+    try
+      float_of_string (Sys.getenv "SOURCE_DATE_EPOCH")
+    with
+      Not_found -> Unix.time ()
+  in string_of_date ~absolute: true ~hour: false time
 
 
 let rec text_list_concat sep l =
@@ -333,7 +344,7 @@ let rec get_before_dot s =
     let len = String.length s in
     let n = String.index s '.' in
     if n + 1 >= len then
-      (* le point est le dernier caractere *)
+      (* The dot is the last character *)
       (true, s, "")
     else
       match s.[n+1] with
@@ -454,7 +465,7 @@ let create_index_lists elements string_of_ele =
         match s with
           "" -> f current acc0 acc1 (acc2 @ [ele]) q
         | _ ->
-            let first = Char.uppercase s.[0] in
+            let first = Char.uppercase_ascii s.[0] in
             match first with
               'A' .. 'Z' ->
                 if current = first then

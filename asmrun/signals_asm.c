@@ -1,15 +1,17 @@
-/***********************************************************************/
-/*                                                                     */
-/*                                OCaml                                */
-/*                                                                     */
-/*            Xavier Leroy, projet Gallium, INRIA Rocquencourt         */
-/*                                                                     */
-/*  Copyright 2007 Institut National de Recherche en Informatique et   */
-/*  en Automatique.  All rights reserved.  This file is distributed    */
-/*  under the terms of the GNU Library General Public License, with    */
-/*  the special exception on linking described in file ../LICENSE.     */
-/*                                                                     */
-/***********************************************************************/
+/**************************************************************************/
+/*                                                                        */
+/*                                 OCaml                                  */
+/*                                                                        */
+/*             Xavier Leroy, projet Gallium, INRIA Rocquencourt           */
+/*                                                                        */
+/*   Copyright 2007 Institut National de Recherche en Informatique et     */
+/*     en Automatique.                                                    */
+/*                                                                        */
+/*   All rights reserved.  This file is distributed under the terms of    */
+/*   the GNU Lesser General Public License version 2.1, with the          */
+/*   special exception on linking described in the file LICENSE.          */
+/*                                                                        */
+/**************************************************************************/
 
 /* Signal handling, code specific to the native-code compiler */
 
@@ -68,14 +70,14 @@ extern char caml_system__code_begin, caml_system__code_end;
 
 void caml_garbage_collection(void)
 {
-  caml_young_limit = caml_young_start;
+  caml_young_limit = caml_young_trigger;
 
   double rest = caml_memprof_call_gc_begin();
 
-  if (caml_young_ptr < caml_young_start || caml_force_major_slice) {
-    caml_minor_collection();
+  if (caml_requested_major_slice || caml_requested_minor_gc ||
+      caml_young_ptr - caml_young_trigger < Max_young_whsize){
+    caml_gc_dispatch ();
   }
-
   caml_process_pending_signals();
 
   caml_memprof_call_gc_end(rest);
@@ -151,7 +153,9 @@ int caml_set_signal_action(int signo, int action)
 
 /* Machine- and OS-dependent handling of bound check trap */
 
-#if defined(TARGET_power) || (defined(TARGET_sparc) && defined(SYS_solaris))
+#if defined(TARGET_power) \
+  || defined(TARGET_s390x) \
+  || (defined(TARGET_sparc) && defined(SYS_solaris))
 DECLARE_SIGNAL_HANDLER(trap_handler)
 {
 #if defined(SYS_solaris)
@@ -174,7 +178,7 @@ DECLARE_SIGNAL_HANDLER(trap_handler)
   }
 #endif
   caml_exception_pointer = (char *) CONTEXT_EXCEPTION_POINTER;
-  caml_young_ptr = (char *) CONTEXT_YOUNG_PTR;
+  caml_young_ptr = (value *) CONTEXT_YOUNG_PTR;
   caml_bottom_of_stack = (char *) CONTEXT_SP;
   caml_last_return_address = (uintnat) CONTEXT_PC;
   caml_array_bound_error();
@@ -233,7 +237,7 @@ DECLARE_SIGNAL_HANDLER(segv_handler)
     /* Raise a Stack_overflow exception straight from this signal handler */
 #if defined(CONTEXT_YOUNG_PTR) && defined(CONTEXT_EXCEPTION_POINTER)
     caml_exception_pointer = (char *) CONTEXT_EXCEPTION_POINTER;
-    caml_young_ptr = (char *) CONTEXT_YOUNG_PTR;
+    caml_young_ptr = (value *) CONTEXT_YOUNG_PTR;
 #endif
     caml_raise_stack_overflow();
 #endif
@@ -271,6 +275,14 @@ void caml_init_signals(void)
     act.sa_flags |= SA_NODEFER;
 #endif
     sigaction(SIGTRAP, &act, NULL);
+  }
+#endif
+
+#if defined(TARGET_s390x)
+  { struct sigaction act;
+    sigemptyset(&act.sa_mask);
+    SET_SIGACT(act, trap_handler);
+    sigaction(SIGFPE, &act, NULL);
   }
 #endif
 

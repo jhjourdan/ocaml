@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                             OCamldoc                                *)
-(*                                                                     *)
-(*            Maxence Guesdon, projet Cristal, INRIA Rocquencourt      *)
-(*                                                                     *)
-(*  Copyright 2001 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Maxence Guesdon, projet Cristal, INRIA Rocquencourt        *)
+(*                                                                        *)
+(*   Copyright 2001 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (** The man pages generator. *)
 open Odoc_info
@@ -340,7 +343,7 @@ class man =
     method man_of_custom_text b s t = ()
 
     method man_of_Target b ~target ~code =
-      if String.lowercase target = "man" then bs b code else ()
+      if String.lowercase_ascii target = "man" then bs b code else ()
 
     (** Print groff string to display code. *)
     method man_of_code b s = self#man_of_text b [ Code s ]
@@ -355,12 +358,10 @@ class man =
           match_s
           (Name.get_relative m_name match_s)
       in
-      let s2 = Str.global_substitute
-          (Str.regexp "\\([A-Z]\\([a-zA-Z_'0-9]\\)*\\.\\)+\\([a-z][a-zA-Z_'0-9]*\\)")
-          f
-          s
-      in
-      s2
+      Str.global_substitute
+        (Str.regexp "\\([A-Z]\\([a-zA-Z_'0-9]\\)*\\.\\)+\\([a-z][a-zA-Z_'0-9]*\\)")
+        f
+        s
 
     (** Print groff string to display a [Types.type_expr].*)
     method man_of_type_expr b m_name t =
@@ -383,8 +384,14 @@ class man =
       bs b "\n"
 
     (** Print groff string to display a [Types.type_expr list].*)
-    method man_of_type_expr_list ?par b m_name sep l =
-      let s = Odoc_str.string_of_type_list ?par sep l in
+    method man_of_cstr_args ?par b m_name sep l =
+      let s =
+        match l with
+        | Cstr_tuple l ->
+            Odoc_str.string_of_type_list ?par sep l
+        | Cstr_record l ->
+            Odoc_str.string_of_record l
+      in
       let s2 = Str.global_replace (Str.regexp "\n") "\n.B " s in
       bs b "\n.B ";
       bs b (self#relative_idents m_name s2);
@@ -448,16 +455,16 @@ class man =
            bs b ("| "^(Name.simple x.xt_name));
            (
              match x.xt_args, x.xt_ret with
-               | [], None -> bs b "\n"
+               | Cstr_tuple [], None -> bs b "\n"
                | l, None ->
                    bs b "\n.B of ";
-                   self#man_of_type_expr_list ~par: false b father " * " l;
-               | [], Some r ->
+                   self#man_of_cstr_args ~par: false b father " * " l;
+               | Cstr_tuple [], Some r ->
                    bs b "\n.B : ";
                    self#man_of_type_expr b father r;
                | l, Some r ->
                    bs b "\n.B : ";
-                   self#man_of_type_expr_list ~par: false b father " * " l;
+                   self#man_of_cstr_args ~par: false b father " * " l;
                    bs b ".B -> ";
                    self#man_of_type_expr b father r;
            );
@@ -498,18 +505,18 @@ class man =
       bs b " \n";
       (
         match e.ex_args, e.ex_ret with
-        | [], None -> ()
+        | Cstr_tuple [], None -> ()
         | l, None ->
            bs b ".B of ";
-           self#man_of_type_expr_list
+           self#man_of_cstr_args
              ~par: false
              b (Name.father e.ex_name) " * " e.ex_args
-        | [], Some r ->
+        | Cstr_tuple [], Some r ->
             bs b ".B : ";
             self#man_of_type_expr b (Name.father e.ex_name) r
         | l, Some r ->
             bs b ".B : ";
-            self#man_of_type_expr_list
+            self#man_of_cstr_args
                    ~par: false
                    b (Name.father e.ex_name) " * " l;
             bs b ".B -> ";
@@ -586,36 +593,36 @@ class man =
              bs b " *)\n "
            in
            match constr.vc_args, constr.vc_text,constr.vc_ret with
-           | [], None, None -> bs b "\n "
-           | [], (Some t), None ->
+           | Cstr_tuple [], None, None -> bs b "\n "
+           | Cstr_tuple [], (Some t), None ->
              print_text t
            | l, None, None ->
              bs b "\n.B of ";
-             self#man_of_type_expr_list ~par: false b father " * " l;
+             self#man_of_cstr_args ~par: false b father " * " l;
              bs b " "
            | l, (Some t), None ->
              bs b "\n.B of ";
-             self#man_of_type_expr_list ~par: false b father " * " l;
+             self#man_of_cstr_args ~par: false b father " * " l;
              bs b ".I \"  \"\n";
              print_text t
-           | [], None, Some r ->
+           | Cstr_tuple [], None, Some r ->
              bs b "\n.B : ";
              self#man_of_type_expr b father r;
              bs b " "
-           | [], (Some t), Some r ->
+           | Cstr_tuple [], (Some t), Some r ->
              bs b "\n.B : ";
              self#man_of_type_expr b father r;
              bs b ".I \"  \"\n";
              print_text t
            | l, None, Some r ->
              bs b "\n.B : ";
-             self#man_of_type_expr_list ~par: false b father " * " l;
+             self#man_of_cstr_args ~par: false b father " * " l;
              bs b ".B -> ";
              self#man_of_type_expr b father r;
              bs b " "
            | l, (Some t), Some r ->
              bs b "\n.B of ";
-             self#man_of_type_expr_list ~par: false b father " * " l;
+             self#man_of_cstr_args ~par: false b father " * " l;
              bs b ".B -> ";
              self#man_of_type_expr b father r;
              bs b ".I \"  \"\n";
@@ -822,8 +829,8 @@ class man =
       bs b ".I ";
       bs b (c.vc_name^" ");
       (match c.vc_args with
-         [] -> ()
-       | h::q ->
+       | Cstr_tuple [] -> ()
+       | Cstr_tuple (h::q) ->
          bs b "of ";
          self#man_of_type_expr b modname h;
          List.iter
@@ -831,6 +838,7 @@ class man =
               bs b " * ";
               self#man_of_type_expr b modname ty)
             q
+       | Cstr_record _ -> bs b "{ ... }"
       );
       bs b "\n.sp\n";
       self#man_of_info b c.vc_text;
@@ -857,14 +865,13 @@ class man =
     (** Generate the man page for the given class.*)
     method generate_for_class cl =
       Odoc_info.reset_type_names () ;
-      let date = Unix.time () in
       let file = self#file_name cl.cl_name in
       try
         let chanout = self#open_out file in
         let b = new_buf () in
         bs b (".TH \""^cl.cl_name^"\" ");
         bs b !man_section ;
-        bs b (" "^(Odoc_misc.string_of_date ~hour: false date)^" ");
+        bs b (" source: "^Odoc_misc.current_date^" ");
         bs b "OCamldoc ";
         bs b ("\""^(match !Global.title with Some t -> t | None -> "")^"\"\n");
 
@@ -916,14 +923,13 @@ class man =
     (** Generate the man page for the given class type.*)
     method generate_for_class_type ct =
       Odoc_info.reset_type_names () ;
-      let date = Unix.time () in
       let file = self#file_name ct.clt_name in
       try
         let chanout = self#open_out file in
         let b = new_buf () in
         bs b (".TH \""^ct.clt_name^"\" ");
         bs b !man_section ;
-        bs b (" "^(Odoc_misc.string_of_date ~hour: false date)^" ");
+        bs b (" source: "^Odoc_misc.current_date^" ");
         bs b "OCamldoc ";
         bs b ("\""^(match !Global.title with Some t -> t | None -> "")^"\"\n");
 
@@ -1009,14 +1015,13 @@ class man =
     (** Generate the man file for the given module type.
        @raise Failure if an error occurs.*)
     method generate_for_module_type mt =
-      let date = Unix.time () in
       let file = self#file_name mt.mt_name in
       try
         let chanout = self#open_out file in
         let b = new_buf () in
         bs b (".TH \""^mt.mt_name^"\" ");
         bs b !man_section ;
-        bs b (" "^(Odoc_misc.string_of_date ~hour: false date)^" ");
+        bs b (" source: "^Odoc_misc.current_date^" ");
         bs b "OCamldoc ";
         bs b ("\""^(match !Global.title with Some t -> t | None -> "")^"\"\n");
 
@@ -1092,14 +1097,13 @@ class man =
     (** Generate the man file for the given module.
        @raise Failure if an error occurs.*)
     method generate_for_module m =
-      let date = Unix.time () in
       let file = self#file_name m.m_name in
       try
         let chanout = self#open_out file in
         let b = new_buf () in
         bs b (".TH \""^m.m_name^"\" ");
         bs b !man_section ;
-        bs b (" "^(Odoc_misc.string_of_date ~hour: false date)^" ");
+        bs b (" source: "^Odoc_misc.current_date^" ");
         bs b "OCamldoc ";
         bs b ("\""^(match !Global.title with Some t -> t | None -> "")^"\"\n");
 
@@ -1199,14 +1203,13 @@ class man =
           | Res_const (_,f) -> f.vc_name
          )
      in
-     let date = Unix.time () in
       let file = self#file_name name in
       try
         let chanout = self#open_out file in
         let b = new_buf () in
         bs b (".TH \""^name^"\" ");
         bs b !man_section ;
-        bs b (" "^(Odoc_misc.string_of_date ~hour: false date)^" ");
+        bs b (" source: "^Odoc_misc.current_date^" ");
         bs b "OCamldoc ";
         bs b ("\""^(match !Global.title with Some t -> t | None -> "")^"\"\n");
         bs b ".SH NAME\n";
@@ -1277,7 +1280,7 @@ class man =
               self#man_of_module_type_body b mt
 
           | Res_section _ ->
-              (* normalement on ne peut pas avoir de module ici. *)
+              (* normaly, we cannot have modules here. *)
               ()
         in
         List.iter f l;

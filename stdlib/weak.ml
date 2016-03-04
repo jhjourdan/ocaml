@@ -1,29 +1,31 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Damien Doligez, projet Para, INRIA Rocquencourt          *)
-(*                                                                     *)
-(*  Copyright 1997 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the GNU Library General Public License, with    *)
-(*  the special exception on linking described in file ../LICENSE.     *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Damien Doligez, projet Para, INRIA Rocquencourt            *)
+(*                                                                        *)
+(*   Copyright 1997 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (** Weak array operations *)
 
 type 'a t;;
 
-external create: int -> 'a t = "caml_weak_create";;
+external create : int -> 'a t = "caml_weak_create";;
 
-let length x = Obj.size(Obj.repr x) - 1;;
+let length x = Obj.size(Obj.repr x) - 2;;
 
 external set : 'a t -> int -> 'a option -> unit = "caml_weak_set";;
-external get: 'a t -> int -> 'a option = "caml_weak_get";;
-external get_copy: 'a t -> int -> 'a option = "caml_weak_get_copy";;
-external check: 'a t -> int -> bool = "caml_weak_check";;
-external blit: 'a t -> int -> 'a t -> int -> int -> unit = "caml_weak_blit";;
+external get : 'a t -> int -> 'a option = "caml_weak_get";;
+external get_copy : 'a t -> int -> 'a option = "caml_weak_get_copy";;
+external check : 'a t -> int -> bool = "caml_weak_check";;
+external blit : 'a t -> int -> 'a t -> int -> int -> unit = "caml_weak_blit";;
 (* blit: src srcoff dst dstoff len *)
 
 let fill ar ofs len x =

@@ -1,15 +1,17 @@
-/***********************************************************************/
-/*                                                                     */
-/*                                OCaml                                */
-/*                                                                     */
-/*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         */
-/*                                                                     */
-/*  Copyright 1996 Institut National de Recherche en Informatique et   */
-/*  en Automatique.  All rights reserved.  This file is distributed    */
-/*  under the terms of the GNU Library General Public License, with    */
-/*  the special exception on linking described in file ../LICENSE.     */
-/*                                                                     */
-/***********************************************************************/
+/**************************************************************************/
+/*                                                                        */
+/*                                 OCaml                                  */
+/*                                                                        */
+/*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           */
+/*                                                                        */
+/*   Copyright 1996 Institut National de Recherche en Informatique et     */
+/*     en Automatique.                                                    */
+/*                                                                        */
+/*   All rights reserved.  This file is distributed under the terms of    */
+/*   the GNU Lesser General Public License version 2.1, with the          */
+/*   special exception on linking described in the file LICENSE.          */
+/*                                                                        */
+/**************************************************************************/
 
 /* The bytecode interpreter */
 #include <stdio.h>
@@ -30,6 +32,7 @@
 #include "caml/signals.h"
 #include "caml/stacks.h"
 #include "caml/memprof.h"
+#include "caml/startup_aux.h"
 
 /* Registers for the abstract machine:
         pc         the code pointer
@@ -272,9 +275,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
 #ifdef DEBUG
     caml_bcodcount++;
     if (caml_icount-- == 0) caml_stop_here ();
-    if (caml_trace_flag>1) printf("\n##%ld\n", caml_bcodcount);
-    if (caml_trace_flag) caml_disasm_instr(pc);
-    if (caml_trace_flag>1) {
+    if (caml_trace_level>1) printf("\n##%ld\n", caml_bcodcount);
+    if (caml_trace_level>0) caml_disasm_instr(pc);
+    if (caml_trace_level>1) {
       printf("env=");
       caml_trace_value_file(env,prog,prog_size,stdout);
       putchar('\n');
@@ -794,7 +797,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
       if (accu == Val_false) pc += *pc; else pc++;
       Next;
     Instruct(SWITCH): {
-      uint32 sizes = *pc++;
+      uint32_t sizes = *pc++;
       if (Is_block(accu)) {
         intnat index = Tag_val(accu);
         Assert ((uintnat) index < (sizes >> 16));

@@ -1,15 +1,17 @@
-/***********************************************************************/
-/*                                                                     */
-/*                                OCaml                                */
-/*                                                                     */
-/*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         */
-/*                                                                     */
-/*  Copyright 1996 Institut National de Recherche en Informatique et   */
-/*  en Automatique.  All rights reserved.  This file is distributed    */
-/*  under the terms of the GNU Library General Public License, with    */
-/*  the special exception on linking described in file ../LICENSE.     */
-/*                                                                     */
-/***********************************************************************/
+/**************************************************************************/
+/*                                                                        */
+/*                                 OCaml                                  */
+/*                                                                        */
+/*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           */
+/*                                                                        */
+/*   Copyright 1996 Institut National de Recherche en Informatique et     */
+/*     en Automatique.                                                    */
+/*                                                                        */
+/*   All rights reserved.  This file is distributed under the terms of    */
+/*   the GNU Lesser General Public License version 2.1, with the          */
+/*   special exception on linking described in the file LICENSE.          */
+/*                                                                        */
+/**************************************************************************/
 
 #include <string.h>
 #include <stdlib.h>
@@ -205,11 +207,11 @@ static intnat compare_val(value v1, value v2, int total)
     }
     case Abstract_tag:
       compare_free_stack();
-      caml_invalid_argument("equal: abstract value");
+      caml_invalid_argument("compare: abstract value");
     case Closure_tag:
     case Infix_tag:
       compare_free_stack();
-      caml_invalid_argument("equal: functional value");
+      caml_invalid_argument("compare: functional value");
     case Object_tag: {
       intnat oid1 = Oid_val(v1);
       intnat oid2 = Oid_val(v2);
@@ -227,7 +229,7 @@ static intnat compare_val(value v1, value v2, int total)
       }
       if (compare == NULL) {
         compare_free_stack();
-        caml_invalid_argument("equal: abstract value");
+        caml_invalid_argument("compare: abstract value");
       }
       caml_compare_unordered = 0;
       res = compare(v1, v2);

@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 open Misc
 open Path
@@ -17,6 +20,8 @@ open Asttypes
 type compile_time_constant =
   | Big_endian
   | Word_size
+  | Int_size
+  | Max_wosize
   | Ostype_unix
   | Ostype_win32
   | Ostype_cygwin
@@ -27,6 +32,14 @@ type loc_kind =
   | Loc_MODULE
   | Loc_LOC
   | Loc_POS
+
+type immediate_or_pointer =
+  | Immediate
+  | Pointer
+
+type initialization_or_assignment =
+  | Initialization
+  | Assignment
 
 type primitive =
     Pidentity
@@ -40,9 +53,9 @@ type primitive =
   (* Operations on heap blocks *)
   | Pmakeblock of int * mutable_flag * Location.t
   | Pfield of int
-  | Psetfield of int * bool
+  | Psetfield of int * immediate_or_pointer * initialization_or_assignment
   | Pfloatfield of int
-  | Psetfloatfield of int
+  | Psetfloatfield of int * initialization_or_assignment
   | Pduprecord of Types.record_representation * int * Location.t
   (* Force lazy values *)
   | Plazyforce
@@ -67,7 +80,8 @@ type primitive =
   (* String operations *)
   | Pstringlength | Pstringrefu | Pstringsetu | Pstringrefs | Pstringsets
   (* Array operations *)
-  | Pmakearray of array_kind * Location.t
+  | Pmakearray of array_kind * mutable_flag * Location.t
+  | Pduparray of array_kind * mutable_flag
   | Parraylength of array_kind
   | Parrayrefu of array_kind
   | Parraysetu of array_kind
@@ -123,6 +137,8 @@ type primitive =
   | Pbbswap of boxed_integer
   (* Integer to external pointer *)
   | Pint_as_pointer
+  (* Inhibition of optimisation *)
+  | Popaque
 
 and comparison =
     Ceq | Cneq | Clt | Cgt | Cle | Cge
@@ -130,7 +146,7 @@ and comparison =
 and array_kind =
     Pgenarray | Paddrarray | Pintarray | Pfloatarray
 
-and boxed_integer =
+and boxed_integer = Primitive.boxed_integer =
     Pnativeint | Pint32 | Pint64
 
 and bigarray_kind =
@@ -159,6 +175,17 @@ type structured_constant =
   | Const_float_array of string list
   | Const_immstring of string
 
+type inline_attribute =
+  | Always_inline (* [@inline] or [@inline always] *)
+  | Never_inline (* [@inline never] *)
+  | Unroll of int (* [@unroll x] *)
+  | Default_inline (* no [@inline] attribute *)
+
+type specialise_attribute =
+  | Always_specialise (* [@specialise] or [@specialise always] *)
+  | Never_specialise (* [@specialise never] *)
+  | Default_specialise (* no [@specialise] attribute *)
+
 type function_kind = Curried | Tupled
 
 type let_kind = Strict | Alias | StrictOpt | Variable
@@ -167,11 +194,17 @@ type meth_kind = Self | Public | Cached
 
 type shared_code = (int * int) list
 
+type function_attribute = {
+  inline : inline_attribute;
+  specialise : specialise_attribute;
+  is_a_functor: bool;
+}
+
 type lambda =
     Lvar of Ident.t
   | Lconst of structured_constant
-  | Lapply of lambda * lambda list * Location.t
-  | Lfunction of function_kind * Ident.t list * lambda
+  | Lapply of lambda_apply
+  | Lfunction of lfunction
   | Llet of let_kind * Ident.t * lambda * lambda
   | Lletrec of (Ident.t * lambda) list * lambda
   | Lprim of primitive * lambda list
@@ -188,6 +221,20 @@ type lambda =
   | Lsend of meth_kind * lambda * lambda * lambda list * Location.t
   | Levent of lambda * lambda_event
   | Lifused of Ident.t * lambda
+
+and lfunction =
+  { kind: function_kind;
+    params: Ident.t list;
+    body: lambda;
+    attr: function_attribute; } (* specified with [@inline] attribute *)
+
+and lambda_apply =
+  { ap_func : lambda;
+    ap_args : lambda list;
+    ap_loc : Location.t;
+    ap_should_be_tailcall : bool;
+    ap_inlined : inline_attribute;
+    ap_specialised : specialise_attribute; }
 
 and lambda_switch =
   { sw_numconsts: int;
@@ -206,10 +253,21 @@ and lambda_event_kind =
     Lev_before
   | Lev_after of Types.type_expr
   | Lev_function
+  | Lev_pseudo
+
+type program =
+  { code : lambda;
+    main_module_block_size : int; }
 
 let const_unit = Const_pointer 0
 
 let lambda_unit = Lconst const_unit
+
+let default_function_attribute = {
+  inline = Default_inline;
+  specialise = Default_specialise;
+  is_a_functor = false;
+}
 
 (* Build sharing keys *)
 (*
@@ -234,12 +292,14 @@ let make_key e =
         try Ident.find_same id env
         with Not_found -> e
       end
-    | Lconst  (Const_base (Const_string _)|Const_float_array _) ->
+    | Lconst  (Const_base (Const_string _)) ->
         (* Mutable constants are not shared *)
         raise Not_simple
     | Lconst _ -> e
-    | Lapply (e,es,loc) ->
-        Lapply (tr_rec env e,tr_recs env es,Location.none)
+    | Lapply ap ->
+        Lapply {ap with ap_func = tr_rec env ap.ap_func;
+                        ap_args = tr_recs env ap.ap_args;
+                        ap_loc = Location.none}
     | Llet (Alias,x,ex,e) -> (* Ignore aliases -> substitute *)
         let ex = tr_rec env ex in
         tr_rec (Ident.add x ex env) e
@@ -320,9 +380,9 @@ let iter_opt f = function
 let iter f = function
     Lvar _
   | Lconst _ -> ()
-  | Lapply(fn, args, _) ->
+  | Lapply{ap_func = fn; ap_args = args} ->
       f fn; List.iter f args
-  | Lfunction(kind, params, body) ->
+  | Lfunction{kind; params; body} ->
       f body
   | Llet(str, id, arg, body) ->
       f arg; f body
@@ -376,7 +436,7 @@ let free_ids get l =
     iter free l;
     fv := List.fold_right IdentSet.add (get l) !fv;
     match l with
-      Lfunction(kind, params, body) ->
+      Lfunction{kind; params; body} ->
         List.iter (fun param -> fv := IdentSet.remove param !fv) params
     | Llet(str, id, arg, body) ->
         fv := IdentSet.remove id !fv
@@ -467,8 +527,11 @@ let subst_lambda s lam =
     Lvar id as l ->
       begin try Ident.find_same id s with Not_found -> l end
   | Lconst sc as l -> l
-  | Lapply(fn, args, loc) -> Lapply(subst fn, List.map subst args, loc)
-  | Lfunction(kind, params, body) -> Lfunction(kind, params, subst body)
+  | Lapply ap ->
+      Lapply{ap with ap_func = subst ap.ap_func;
+                     ap_args = List.map subst ap.ap_args}
+  | Lfunction{kind; params; body; attr} ->
+      Lfunction{kind; params; body = subst body; attr}
   | Llet(str, id, arg, body) -> Llet(str, id, subst arg, subst body)
   | Lletrec(decl, body) -> Lletrec(List.map subst_decl decl, subst body)
   | Lprim(p, args) -> Lprim(p, List.map subst args)
@@ -500,6 +563,66 @@ let subst_lambda s lam =
     | Some e -> Some (subst e)
   in subst lam
 
+let rec map f lam =
+  let lam =
+    match lam with
+    | Lvar v -> lam
+    | Lconst cst -> lam
+    | Lapply { ap_func; ap_args; ap_loc; ap_should_be_tailcall;
+          ap_inlined; ap_specialised } ->
+        Lapply {
+          ap_func = map f ap_func;
+          ap_args = List.map (map f) ap_args;
+          ap_loc;
+          ap_should_be_tailcall;
+          ap_inlined;
+          ap_specialised;
+        }
+    | Lfunction { kind; params; body; attr; } ->
+        Lfunction { kind; params; body = map f body; attr; }
+    | Llet (str, v, e1, e2) ->
+        Llet (str, v, map f e1, map f e2)
+    | Lletrec (idel, e2) ->
+        Lletrec (List.map (fun (v, e) -> (v, map f e)) idel, map f e2)
+    | Lprim (p, el) ->
+        Lprim (p, List.map (map f) el)
+    | Lswitch (e, sw) ->
+        Lswitch (map f e,
+          { sw_numconsts = sw.sw_numconsts;
+            sw_consts = List.map (fun (n, e) -> (n, map f e)) sw.sw_consts;
+            sw_numblocks = sw.sw_numblocks;
+            sw_blocks = List.map (fun (n, e) -> (n, map f e)) sw.sw_blocks;
+            sw_failaction = Misc.may_map (map f) sw.sw_failaction;
+          })
+    | Lstringswitch (e, sw, default) ->
+        Lstringswitch (
+          map f e,
+          List.map (fun (s, e) -> (s, map f e)) sw,
+          Misc.may_map (map f) default)
+    | Lstaticraise (i, args) ->
+        Lstaticraise (i, List.map (map f) args)
+    | Lstaticcatch (body, id, handler) ->
+        Lstaticcatch (map f body, id, map f handler)
+    | Ltrywith (e1, v, e2) ->
+        Ltrywith (map f e1, v, map f e2)
+    | Lifthenelse (e1, e2, e3) ->
+        Lifthenelse (map f e1, map f e2, map f e3)
+    | Lsequence (e1, e2) ->
+        Lsequence (map f e1, map f e2)
+    | Lwhile (e1, e2) ->
+        Lwhile (map f e1, map f e2)
+    | Lfor (v, e1, e2, dir, e3) ->
+        Lfor (v, map f e1, map f e2, dir, map f e3)
+    | Lassign (v, e) ->
+        Lassign (v, map f e)
+    | Lsend (k, m, o, el, loc) ->
+        Lsend (k, map f m, map f o, List.map (map f) el, loc)
+    | Levent (l, ev) ->
+        Levent (map f l, ev)
+    | Lifused (v, e) ->
+        Lifused (v, map f e)
+  in
+  f lam
 
 (* To let-bind expressions to variables *)
 

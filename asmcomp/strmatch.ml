@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (* Translation of string matching from closed lambda to C-- *)
 
@@ -69,7 +72,7 @@ module Make(I:I) = struct
 
   let mk_let_cell id str ind body =
     let cell =
-      Cop(Cload Word,[Cop(Cadda,[str;Cconst_int(Arch.size_int*ind)])]) in
+      Cop(Cload Word_int,[Cop(Cadda,[str;Cconst_int(Arch.size_int*ind)])]) in
     Clet(id, cell, body)
 
   let mk_let_size id str body =
@@ -220,10 +223,6 @@ module Make(I:I) = struct
   module Divide(O:Set.OrderedType) = struct
 
     module OMap = Map.Make(O)
-
-    let do_find key env =
-      try OMap.find key env
-      with Not_found -> assert false
 
     let divide cases =
       let env =

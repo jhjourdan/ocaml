@@ -1,15 +1,18 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*          Jerome Vouillon, projet Cristal, INRIA Rocquencourt        *)
-(*          OCaml port by John Malecki and Xavier Leroy                *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*           Jerome Vouillon, projet Cristal, INRIA Rocquencourt          *)
+(*           OCaml port by John Malecki and Xavier Leroy                  *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (************************ Reading and executing commands ***************)
 
@@ -77,7 +80,7 @@ let error text =
 let check_not_windows feature =
   match Sys.os_type with
   | "Win32" ->
-      error ("'"^feature^"' feature not supported on Windows")
+      error ("\'"^feature^"\' feature not supported on Windows")
   | _ ->
       ()
 
@@ -124,7 +127,7 @@ let add_breakpoint_at_pc pc =
     new_breakpoint (any_event_at_pc pc)
   with
   | Not_found ->
-    eprintf "Can't add breakpoint at pc %i: no event there.@." pc;
+    eprintf "Can\'t add breakpoint at pc %i: no event there.@." pc;
     raise Toplevel
 
 let add_breakpoint_after_pc pc =
@@ -137,7 +140,7 @@ let add_breakpoint_after_pc pc =
         try_add (n+1)
     end else begin
       error
-        "Can't add breakpoint at beginning of function: no event there"
+        "Can\'t add breakpoint at beginning of function: no event there"
     end
   in try_add 0
 
@@ -150,9 +153,9 @@ let convert_module mdle =
   match mdle with
   | Some m ->
       (* Strip .ml extension if any, and capitalize *)
-      String.capitalize(if Filename.check_suffix m ".ml"
-                        then Filename.chop_suffix m ".ml"
-                        else m)
+      String.capitalize_ascii(if Filename.check_suffix m ".ml"
+                              then Filename.chop_suffix m ".ml"
+                              else m)
   | None ->
       try
         (get_current_event ()).ev_module
@@ -185,7 +188,7 @@ let interprete_line ppf line =
     with
     | Parsing.Parse_error ->
         error "Syntax error."
-    | Failure "int_of_string" ->
+    | Lexer.Int_overflow ->
       error "Integer overflow"
 
 let line_loop ppf line_buffer =
@@ -270,7 +273,7 @@ let instr_dir ppf lexbuf =
       let new_directory' = List.rev new_directory in
       match new_directory' with
       | mdl :: for_keyw :: tl
-        when (String.lowercase for_keyw) = "for" && (List.length tl) > 0 ->
+        when String.lowercase_ascii for_keyw = "for" && List.length tl > 0 ->
           List.iter (function x -> add_path_for mdl (expand_path x)) tl
       | _ ->
           List.iter (function x -> add_path (expand_path x)) new_directory'
@@ -290,6 +293,11 @@ let instr_kill ppf lexbuf =
     kill_program ();
     show_no_point()
   end
+
+let instr_pid ppf lexbuf =
+  eol lexbuf;
+  if not !loaded then error "The program is not being run.";
+  fprintf ppf "@[%d@]@." !current_checkpoint.c_pid
 
 let instr_run ppf lexbuf =
   eol lexbuf;
@@ -514,13 +522,37 @@ let instr_print ppf lexbuf = print_command !max_printer_depth ppf lexbuf
 
 let instr_display ppf lexbuf = print_command 1 ppf lexbuf
 
+let instr_address ppf lexbuf =
+  let exprs = expression_list_eol Lexer.lexeme lexbuf in
+  ensure_loaded ();
+  let env =
+    try
+      env_of_event !selected_event
+    with
+    | Envaux.Error msg ->
+        Envaux.report_error ppf msg;
+        raise Toplevel
+  in
+  let print_addr expr =
+    let (v, _ty) =
+      try Eval.expression !selected_event env expr
+      with Eval.Error msg ->
+        Eval.report_error ppf msg;
+        raise Toplevel
+    in
+    match Remote_value.pointer v with
+    | "" -> fprintf ppf "[not a remote value]@."
+    | s -> fprintf ppf "0x%s@." s
+  in
+  List.iter print_addr exprs
+
 (* Loading of command files *)
 
 let extract_filename arg =
   (* Allow enclosing filename in quotes *)
   let l = String.length arg in
-  let pos1 = if l > 0 && arg.[0] = '"' then 1 else 0 in
-  let pos2 = if l > 0 && arg.[l-1] = '"' then l-1 else l in
+  let pos1 = if l > 0 && arg.[0] = '\"' then 1 else 0 in
+  let pos2 = if l > 0 && arg.[l-1] = '\"' then l-1 else l in
   String.sub arg pos1 (pos2 - pos1)
 
 let instr_source ppf lexbuf =
@@ -581,7 +613,7 @@ let instr_break ppf lexbuf =
          | Some ev ->
              new_breakpoint ev
          | None ->
-             error "Can't add breakpoint at this point.")
+             error "Can\'t add breakpoint at this point.")
     | BA_pc pc ->                               (* break PC *)
         add_breakpoint_at_pc pc
     | BA_function expr ->                       (* break FUNCTION *)
@@ -627,7 +659,7 @@ let instr_break ppf lexbuf =
                  event_near_pos module_name (point_of_coord buffer line col)
            with
            | Not_found -> (* event_at_pos / event_near pos *)
-               eprintf "Can't find any event there.@.";
+               eprintf "Can\'t find any event there.@.";
                raise Toplevel
            | Out_of_range -> (* pos_of_line / point_of_coord *)
                eprintf "Position out of range.@.";
@@ -639,7 +671,7 @@ let instr_break ppf lexbuf =
                             position)
         with
         | Not_found ->
-            eprintf "Can't find any event there.@."
+            eprintf "Can\'t find any event there.@."
 
 let instr_delete ppf lexbuf =
   match integer_list_eol Lexer.lexeme lexbuf with
@@ -748,7 +780,11 @@ let instr_list ppf lexbuf =
       | Not_found ->
           ("", -1, -1)
     in
-      let mdle = convert_module (module_of_longident mo) in
+      let mdle =
+        match mo with
+        | None -> curr_mod
+        | _ -> convert_module (module_of_longident mo)
+      in
       let pos = Lexing.dummy_pos in
       let buffer =
         try get_buffer pos mdle with
@@ -991,6 +1027,12 @@ With no argument, reset the search path." };
      { instr_name = "kill"; instr_prio = false;
        instr_action = instr_kill; instr_repeat = true; instr_help =
 "kill the program being debugged." };
+     { instr_name = "pid"; instr_prio = false;
+       instr_action = instr_pid; instr_repeat = true; instr_help =
+"print the process ID of the current active process." };
+     { instr_name = "address"; instr_prio = false;
+       instr_action = instr_address; instr_repeat = true; instr_help =
+"print the raw address of a value." };
      { instr_name = "help"; instr_prio = false;
        instr_action = instr_help; instr_repeat = true; instr_help =
 "print list of commands." };
@@ -1124,7 +1166,7 @@ using \"load_printer\"." };
 "mode of loading.\n\
 It can be either:\n\
   direct: the program is directly called by the debugger.\n\
-  runtime: the debugger execute `ocamlrun programname arguments'.\n\
+  runtime: the debugger execute `ocamlrun programname arguments\'.\n\
   manual: the program is not launched by the debugger,\n\
     but manually by the user." };
      { var_name = "processcount";

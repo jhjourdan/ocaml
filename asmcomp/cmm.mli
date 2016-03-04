@@ -1,25 +1,56 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (* Second intermediate language (machine independent) *)
 
 type machtype_component =
-    Addr
+  | Val
+  | Addr
   | Int
   | Float
+
+(* - [Val] denotes a valid OCaml value: either a pointer to the beginning
+     of a heap block, an infix pointer if it is preceded by the correct
+     infix header, or a 2n+1 encoded integer.
+   - [Int] is for integers (not necessarily 2n+1 encoded) and for
+     pointers outside the heap.
+   - [Addr] denotes pointers that are neither [Val] nor [Int], i.e.
+     pointers into the heap that point in the middle of a heap block.
+     Such derived pointers are produced by e.g. array indexing.
+   - [Float] is for unboxed floating-point numbers.
+
+The purpose of these types is twofold.  First, they guide register
+allocation: type [Float] goes in FP registers, the other types go
+into integer registers.  Second, they determine how local variables are
+tracked by the GC:
+   - Variables of type [Val] are GC roots.  If they are pointers, the
+     GC will not deallocate the addressed heap block, and will update
+     the local variable if the heap block moves.
+   - Variables of type [Int] and [Float] are ignored by the GC.
+     The GC does not change their values.
+   - Variables of type [Addr] must never be live across an allocation
+     point or function call.  They cannot be given as roots to the GC
+     because they don't point after a well-formed block header of the
+     kind that the GC needs.  However, the GC may move the block pointed
+     into, invalidating the value of the [Addr] variable.
+*)
 
 type machtype = machtype_component array
 
 val typ_void: machtype
+val typ_val: machtype
 val typ_addr: machtype
 val typ_int: machtype
 val typ_float: machtype
@@ -45,21 +76,23 @@ type memory_chunk =
   | Sixteen_signed
   | Thirtytwo_unsigned
   | Thirtytwo_signed
-  | Word
+  | Word_int                           (* integer or pointer outside heap *)
+  | Word_val                           (* pointer inside heap or encoded int *)
   | Single
-  | Double                              (* 64-bit-aligned 64-bit float *)
-  | Double_u                            (* word-aligned 64-bit float *)
+  | Double                             (* 64-bit-aligned 64-bit float *)
+  | Double_u                           (* word-aligned 64-bit float *)
 
 type operation =
     Capply of machtype * Debuginfo.t
   | Cextcall of string * machtype * bool * Debuginfo.t
   | Cload of memory_chunk
   | Calloc of Debuginfo.t
-  | Cstore of memory_chunk
+  | Cstore of memory_chunk * Lambda.initialization_or_assignment
   | Caddi | Csubi | Cmuli | Cmulhi | Cdivi | Cmodi
   | Cand | Cor | Cxor | Clsl | Clsr | Casr
   | Ccmpi of comparison
-  | Cadda | Csuba
+  | Caddv (* pointer addition that produces a [Val] (well-formed Caml value) *)
+  | Cadda (* pointer addition that produces a [Addr] (derived heap pointer) *)
   | Ccmpa of comparison
   | Cnegf | Cabsf
   | Caddf | Csubf | Cmulf | Cdivf

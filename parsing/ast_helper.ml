@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*                        Alain Frisch, LexiFi                         *)
-(*                                                                     *)
-(*  Copyright 2012 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*                         Alain Frisch, LexiFi                           *)
+(*                                                                        *)
+(*   Copyright 2012 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (** Helpers to produce Parsetree fragments *)
 
@@ -28,6 +31,17 @@ let with_default_loc l f =
   default_loc := l;
   try let r = f () in default_loc := old; r
   with exn -> default_loc := old; raise exn
+
+module Const = struct
+  let integer ?suffix i = Pconst_integer (i, suffix)
+  let int ?suffix i = integer ?suffix (string_of_int i)
+  let int32 ?(suffix='l') i = integer ~suffix (Int32.to_string i)
+  let int64 ?(suffix='L') i = integer ~suffix (Int64.to_string i)
+  let nativeint ?(suffix='n') i = integer ~suffix (Nativeint.to_string i)
+  let float ?suffix f = Pconst_float (f, suffix)
+  let char c = Pconst_char c
+  let string ?quotation_delimiter s = Pconst_string (s, quotation_delimiter)
+end
 
 module Typ = struct
   let mk ?(loc = !default_loc) ?(attrs = []) d =
@@ -116,6 +130,7 @@ module Exp = struct
   let pack ?loc ?attrs a = mk ?loc ?attrs (Pexp_pack a)
   let open_ ?loc ?attrs a b c = mk ?loc ?attrs (Pexp_open (a, b, c))
   let extension ?loc ?attrs a = mk ?loc ?attrs (Pexp_extension a)
+  let unreachable ?loc ?attrs () = mk ?loc ?attrs Pexp_unreachable
 
   let case lhs ?guard rhs =
     {
@@ -158,7 +173,7 @@ module Sig = struct
   let mk ?(loc = !default_loc) d = {psig_desc = d; psig_loc = loc}
 
   let value ?loc a = mk ?loc (Psig_value a)
-  let type_ ?loc a = mk ?loc (Psig_type a)
+  let type_ ?loc rec_flag a = mk ?loc (Psig_type (rec_flag, a))
   let type_extension ?loc a = mk ?loc (Psig_typext a)
   let exception_ ?loc a = mk ?loc (Psig_exception a)
   let module_ ?loc a = mk ?loc (Psig_module a)
@@ -182,7 +197,7 @@ module Str = struct
   let eval ?loc ?(attrs = []) a = mk ?loc (Pstr_eval (a, attrs))
   let value ?loc a b = mk ?loc (Pstr_value (a, b))
   let primitive ?loc a = mk ?loc (Pstr_primitive a)
-  let type_ ?loc a = mk ?loc (Pstr_type a)
+  let type_ ?loc rec_flag a = mk ?loc (Pstr_type (rec_flag, a))
   let type_extension ?loc a = mk ?loc (Pstr_typext a)
   let exception_ ?loc a = mk ?loc (Pstr_exception a)
   let module_ ?loc a = mk ?loc (Pstr_module a)
@@ -403,7 +418,7 @@ module Type = struct
     }
 
   let constructor ?(loc = !default_loc) ?(attrs = []) ?(info = empty_info)
-        ?(args = []) ?res name =
+        ?(args = Pcstr_tuple []) ?res name =
     {
      pcd_name = name;
      pcd_args = args;
@@ -445,8 +460,8 @@ module Te = struct
      pext_attributes = add_docs_attrs docs (add_info_attrs info attrs);
     }
 
-  let decl ?(loc = !default_loc) ?(attrs = [])
-        ?(docs = empty_docs) ?(info = empty_info) ?(args = []) ?res name =
+  let decl ?(loc = !default_loc) ?(attrs = []) ?(docs = empty_docs)
+             ?(info = empty_info) ?(args = Pcstr_tuple []) ?res name =
     {
      pext_name = name;
      pext_kind = Pext_decl(args, res);
@@ -480,4 +495,3 @@ module Cstr = struct
      pcstr_fields = fields;
     }
 end
-

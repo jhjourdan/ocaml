@@ -9,9 +9,12 @@
 #include "caml/alloc.h"
 #include "caml/hash.h"
 #include "caml/callback.h"
+#ifdef NATIVE_CODE
+#include "stack.h"
+#endif
 
-static uint32 mt_state[624];
-static uint32 mt_index;
+static uint32_t mt_state[624];
+static uint32_t mt_index;
 
 /* [lambda] is the mean number of samples for each allocated word (including
    block headers. */
@@ -19,14 +22,14 @@ static double lambda = 0;
 static double lambda_rec = INFINITY;
 
 static double next_sample_young;
-char* caml_memprof_young_limit;
+value* caml_memprof_young_limit;
 
 struct tracked_block {
   value block;
 #ifdef NATIVE_CODE
-  uint32 alloc_frame_pos;
+  uint32_t alloc_frame_pos;
 #endif
-  uint32 occurences;
+  uint32_t occurences;
   value callstack;
 };
 
@@ -37,9 +40,9 @@ static uintnat size = 0, old = 0;
 static float log_tbl[64];
 
 static double fast_log(float v) {
-  int32 iv = *(int32*)&v;
-  int32 exp = ((iv >> 23) & 255) - 127;
-  int32 idx = iv & 0x7E0000;
+  int32_t iv = *(int32_t*)&v;
+  int32_t exp = ((iv >> 23) & 255) - 127;
+  int32_t idx = iv & 0x7E0000;
   double corr = 1. * (0x1FFFF & iv) / (idx + 0x800000);
 
   return ((double)exp + log_tbl[idx >> 17]) * 0.69314718055994530941 + corr;
@@ -47,7 +50,7 @@ static double fast_log(float v) {
 
 static double mt_generate_uniform(void) {
   int i;
-  uint32 y;
+  uint32_t y;
 
   /* Mersenne twister PRNG */
   if (mt_index == 624) {
@@ -87,7 +90,7 @@ static double mt_generate_exponential() {
 }
 
 /* Max returned value : 2^30-2 */
-static uint32 mt_generate_poisson(double lambda) {
+static uint32_t mt_generate_poisson(double lambda) {
   Assert(lambda >= 0 && !isinf(lambda));
 
   if(lambda == 0)
@@ -95,7 +98,7 @@ static uint32 mt_generate_poisson(double lambda) {
 
   if(lambda < 20) {
     double p;
-    uint32 k;
+    uint32_t k;
     k = 0;
     p = expf(lambda);
     do {
@@ -127,32 +130,22 @@ static uint32 mt_generate_poisson(double lambda) {
 }
 
 static void update_limit(void) {
-  if(next_sample_young >
-     Wsize_bsize(caml_young_end - caml_young_start) +
-       Whsize_wosize(Max_young_wosize))
-    caml_memprof_young_limit = caml_young_start - Max_young_wosize;
+  Assert(next_sample_young >= caml_young_alloc_end - caml_young_ptr);
+  if(next_sample_young > caml_young_alloc_end - caml_young_alloc_start + Max_young_whsize)
+    caml_memprof_young_limit = caml_young_alloc_start - Max_young_wosize;
   else
-    caml_memprof_young_limit =
-      (char*)caml_young_end - Bsize_wsize((uintnat)next_sample_young);
+    caml_memprof_young_limit = caml_young_alloc_end - (uintnat)next_sample_young;
 
-  intnat oldpending = caml_signals_are_pending;
-
-  if(caml_young_limit != caml_young_end)
-    caml_young_limit =
-      caml_memprof_young_limit < caml_young_start ?
-      caml_young_start : caml_memprof_young_limit;
-  if(caml_signals_are_pending && !oldpending)
-    caml_young_limit = caml_young_end;
+  caml_young_limit =
+    caml_memprof_young_limit < caml_young_limit ?
+    caml_young_limit : caml_memprof_young_limit;
 }
 
 static void renew_sample(void) {
   next_sample_young =
-    Wsize_bsize(caml_young_end-caml_young_ptr) + mt_generate_exponential();
+    caml_young_alloc_end - caml_young_ptr + mt_generate_exponential();
 
   update_limit();
-
-  Assert(caml_memprof_young_limit <= caml_young_ptr ||
-         caml_memprof_young_limit == caml_young_start);
 }
 
 void caml_memprof_reinit(void) {
@@ -221,14 +214,15 @@ CAMLprim value caml_memprof_register_callback(value callback) {
 }
 
 void caml_memprof_track_young(uintnat wosize) {
+  uintnat whsize = Whsize_wosize(wosize);
   CAMLparam0();
   CAMLlocal1(callstack);
-  double rest = Wsize_bsize(caml_young_end-caml_young_ptr) - next_sample_young;
+  double rest = caml_young_alloc_end - caml_young_ptr - next_sample_young;
   struct tracked_block blk;
 
   Assert(rest > 0);
 
-  caml_young_ptr += Bhsize_wosize(wosize);
+  caml_young_ptr += whsize;
 
   renew_sample();
 
@@ -239,11 +233,11 @@ void caml_memprof_track_young(uintnat wosize) {
   callstack = caml_callback(memprof_callback, Val_unit);
   blk.occurences = mt_generate_poisson(rest*lambda) + 1;
 
-  if(caml_young_ptr - Bhsize_wosize(wosize) < caml_young_start)
-    caml_minor_collection();
-  caml_young_ptr -= Bhsize_wosize(wosize);
+  if(caml_young_ptr - whsize < caml_young_trigger)
+    caml_gc_dispatch();
+  caml_young_ptr -= whsize;
 
-  next_sample_young += Whsize_wosize(wosize);
+  next_sample_young += whsize;
   update_limit();
 
   blk.block = Val_hp(caml_young_ptr);
@@ -255,10 +249,11 @@ void caml_memprof_track_young(uintnat wosize) {
 
 value caml_memprof_track_alloc_shr(value block) {
   CAMLparam1(block);
+  CAMLreturn (block);
 
   Assert(Is_in_heap(block));
 
-  uint32 occurences = mt_generate_poisson(lambda * Whsize_val(block));
+  uint32_t occurences = mt_generate_poisson(lambda * Whsize_val(block));
   if(occurences > 0) {
     struct tracked_block blk;
     // We temporarily change the tag of the newly allocated  block to
@@ -375,7 +370,7 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
 #ifdef NATIVE_CODE
 double caml_memprof_call_gc_begin(void) {
   if(caml_young_ptr < caml_memprof_young_limit && lambda > 0) {
-    double rest = Wsize_bsize(caml_young_end-caml_young_ptr) - next_sample_young;
+    double rest = caml_young_alloc_end - caml_young_ptr - next_sample_young;
     Assert(rest > 0);
     renew_sample();
     return rest;
@@ -399,7 +394,6 @@ void caml_memprof_call_gc_end(double rest) {
 
   if(lambda == 0)
     CAMLreturn0;
-
   d = caml_next_frame_descriptor(&pc, &sp);
   /* Should not happen, except on sparc */
   if(d == NULL || (d->frame_size & 2) != 2)
@@ -423,8 +417,8 @@ void caml_memprof_call_gc_end(double rest) {
 
     callstack = caml_callback(memprof_callback, Val_unit);
 
-    if(caml_young_ptr - Bsize_wsize(tot_whsize) < caml_young_start)
-      caml_minor_collection();
+    if(caml_young_ptr - tot_whsize < caml_young_trigger)
+      caml_gc_dispatch();
 
     for(i = 0; i < num_blocks; i++) {
       next_sample -= block_sizes[i];
@@ -436,7 +430,7 @@ void caml_memprof_call_gc_end(double rest) {
         /* It is important not to allocate anything or call the GC between
          * this point and the re-execution of the allocation code in assembly,
          * because blk.block would then be incorrect. */
-        blk.block = Val_hp(caml_young_ptr - Bsize_wsize(offs));
+        blk.block = Val_hp(caml_young_ptr - offs);
         blk.callstack = callstack;
 
         push(&blk);
@@ -488,7 +482,7 @@ void caml_memprof_clean() {
   shrink();
 }
 
-void caml_memprof_minor_gc_update(char* old_young_ptr) {
+void caml_memprof_minor_gc_update(value* old_young_ptr) {
   uintnat i;
 
   for(i = old; i < tracked_blocks_end; i++) {
@@ -515,7 +509,7 @@ void caml_memprof_minor_gc_update(char* old_young_ptr) {
 
   shrink();
 
-  next_sample_young -= Wsize_bsize(caml_young_end-old_young_ptr);
+  next_sample_young -= caml_young_alloc_end - old_young_ptr;
   update_limit();
 }
 

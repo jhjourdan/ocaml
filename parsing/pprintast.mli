@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Hongbo Zhang (University of Pennsylvania)                *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Hongbo Zhang (University of Pennsylvania)                  *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 type space_formatter = (unit, Format.formatter, unit) format
 class printer :
@@ -35,8 +38,12 @@ class printer :
     method class_type : Format.formatter -> Parsetree.class_type -> unit
     method class_type_declaration_list :
       Format.formatter -> Parsetree.class_type_declaration list -> unit
-    method constant : Format.formatter -> Asttypes.constant -> unit
+    method constant : Format.formatter -> Parsetree.constant -> unit
     method constant_string : Format.formatter -> string -> unit
+    method constructor_declaration :
+      Format.formatter -> (string * Parsetree.constructor_arguments
+                           * Parsetree.core_type option * Parsetree.attributes)
+        -> unit
     method core_type : Format.formatter -> Parsetree.core_type -> unit
     method core_type1 : Format.formatter -> Parsetree.core_type -> unit
     method direction_flag :
@@ -52,10 +59,10 @@ class printer :
       Format.formatter -> Parsetree.extension_constructor -> unit
     method label_exp :
       Format.formatter ->
-      Asttypes.label * Parsetree.expression option * Parsetree.pattern ->
+      Asttypes.arg_label * Parsetree.expression option * Parsetree.pattern ->
       unit
     method label_x_expression_param :
-      Format.formatter -> Asttypes.label * Parsetree.expression -> unit
+      Format.formatter -> Asttypes.arg_label * Parsetree.expression -> unit
     method list :
       ?sep:space_formatter ->
       ?first:space_formatter ->
@@ -81,6 +88,8 @@ class printer :
     method private_flag : Format.formatter -> Asttypes.private_flag -> unit
     method rec_flag : Format.formatter -> Asttypes.rec_flag -> unit
     method nonrec_flag : Format.formatter -> Asttypes.rec_flag -> unit
+    method record_declaration :
+        Format.formatter -> Parsetree.label_declaration list -> unit
 
     method reset : 'b
     method reset_semi : 'b
@@ -104,7 +113,8 @@ class printer :
     method type_declaration :
       Format.formatter -> Parsetree.type_declaration -> unit
     method type_def_list :
-      Format.formatter -> Parsetree.type_declaration list -> unit
+      Format.formatter -> Asttypes.rec_flag * Parsetree.type_declaration list
+        -> unit
     method type_extension :
       Format.formatter -> Parsetree.type_extension -> unit
     method type_param :
@@ -112,7 +122,7 @@ class printer :
     method type_params :
       Format.formatter -> (Parsetree.core_type * Asttypes.variance) list -> unit
     method type_with_label :
-      Format.formatter -> Asttypes.label * Parsetree.core_type -> unit
+      Format.formatter -> Asttypes.arg_label * Parsetree.core_type -> unit
     method tyvar : Format.formatter -> string -> unit
     method under_pipe : 'b
     method under_semi : 'b

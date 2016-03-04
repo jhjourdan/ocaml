@@ -1,21 +1,26 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 open Config
 open Clflags
 open Compenv
 
 let process_interface_file ppf name =
-  Compile.interface ppf name (output_prefix name)
+  let opref = output_prefix name in
+  Compile.interface ppf name opref;
+  if !make_package then objfiles := (opref ^ ".cmi") :: !objfiles
 
 let process_implementation_file ppf name =
   let opref = output_prefix name in
@@ -24,16 +29,10 @@ let process_implementation_file ppf name =
 
 let process_file ppf name =
   if Filename.check_suffix name ".ml"
-  || Filename.check_suffix name ".mlt" then begin
-    let opref = output_prefix name in
-    Compile.implementation ppf name opref;
-    objfiles := (opref ^ ".cmo") :: !objfiles
-  end
-  else if Filename.check_suffix name !Config.interface_suffix then begin
-    let opref = output_prefix name in
-    Compile.interface ppf name opref;
-    if !make_package then objfiles := (opref ^ ".cmi") :: !objfiles
-  end
+  || Filename.check_suffix name ".mlt" then
+    process_implementation_file ppf name
+  else if Filename.check_suffix name !Config.interface_suffix then
+    process_interface_file ppf name
   else if Filename.check_suffix name ".cmo"
        || Filename.check_suffix name ".cma" then
     objfiles := name :: !objfiles
@@ -58,11 +57,16 @@ let ppf = Format.err_formatter
 
 (* Error messages to standard error formatter *)
 let anonymous filename =
-  readenv ppf Before_compile; process_file ppf filename;;
+  readenv ppf (Before_compile filename);
+  process_file ppf filename;;
+
 let impl filename =
-  readenv ppf Before_compile; process_implementation_file ppf filename;;
+  readenv ppf (Before_compile filename);
+  process_implementation_file ppf filename;;
+
 let intf filename =
-  readenv ppf Before_compile; process_interface_file ppf filename;;
+  readenv ppf (Before_compile filename);
+  process_interface_file ppf filename;;
 
 let show_config () =
   Config.print_config stdout;
@@ -106,10 +110,13 @@ module Options = Main_args.Make_bytecomp_options (struct
   let _noautolink = set no_auto_link
   let _nostdlib = set no_std_include
   let _o s = output_name := Some s
+  let _opaque = set opaque
   let _open s = open_modules := s :: !open_modules
   let _output_obj () = output_c_object := true; custom_runtime := true
   let _output_complete_obj () =
-    output_c_object := true; output_complete_object := true; custom_runtime := true
+    output_c_object := true;
+    output_complete_object := true;
+    custom_runtime := true
   let _pack = set make_package
   let _pp s = preprocessor := Some s
   let _ppx s = first_ppx := s :: !first_ppx
@@ -132,6 +139,11 @@ module Options = Main_args.Make_bytecomp_options (struct
   let _w = (Warnings.parse_options false)
   let _warn_error = (Warnings.parse_options true)
   let _warn_help = Warnings.help_warnings
+  let _color option =
+    begin match Clflags.parse_color_setting option with
+          | None -> ()
+          | Some setting -> Clflags.color := setting
+    end
   let _where = print_standard_library
   let _verbose = set verbose
   let _nopervasives = set nopervasives
@@ -141,6 +153,7 @@ module Options = Main_args.Make_bytecomp_options (struct
   let _drawlambda = set dump_rawlambda
   let _dlambda = set dump_lambda
   let _dinstr = set dump_instr
+  let _dtimings = set print_timings
   let anonymous = anonymous
 end)
 
@@ -194,13 +207,11 @@ let main () =
       Bytelink.link ppf (get_objfiles ()) target;
       Warnings.check_fatal ();
     end;
-    exit 0
   with x ->
     Location.report_exception ppf x;
     exit 2
 
-let _ = main ()
-
-
-
-
+let _ =
+  Timings.(time All) main ();
+  if !Clflags.print_timings then Timings.print Format.std_formatter;
+  exit 0

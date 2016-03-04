@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 type t =
     Pident of Ident.t
@@ -48,7 +51,39 @@ let rec head = function
   | Pdot(p, s, pos) -> head p
   | Papply(p1, p2) -> assert false
 
+let heads p =
+  let rec heads p acc = match p with
+    | Pident id -> id :: acc
+    | Pdot (p, _s, _pos) -> heads p acc
+    | Papply(p1, p2) ->
+        heads p1 (heads p2 acc)
+  in heads p []
+
 let rec last = function
   | Pident id -> Ident.name id
   | Pdot(_, s, _) -> s
   | Papply(_, p) -> last p
+
+let is_uident s =
+  assert (s <> "");
+  match s.[0] with
+  | 'A'..'Z' -> true
+  | _ -> false
+
+type typath =
+  | Regular of t
+  | Ext of t * string
+  | LocalExt of Ident.t
+  | Cstr of t * string
+
+let constructor_typath = function
+  | Pident id when is_uident (Ident.name id) -> LocalExt id
+  | Pdot(ty_path, s, _) when is_uident s ->
+      if is_uident (last ty_path) then Ext (ty_path, s)
+      else Cstr (ty_path, s)
+  | p -> Regular p
+
+let is_constructor_typath p =
+  match constructor_typath p with
+  | Regular _ -> false
+  | _ -> true

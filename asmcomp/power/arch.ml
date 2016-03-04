@@ -1,22 +1,45 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (* Specific operations for the PowerPC processor *)
 
 open Format
 
+let ppc64 =
+  match Config.model with
+  | "ppc" -> false
+  | "ppc64" | "ppc64le" -> true
+  | _ -> assert false
+
+type abi = ELF32 | ELF64v1 | ELF64v2
+
+let abi =
+  match Config.model with
+  | "ppc" -> ELF32
+  | "ppc64" -> ELF64v1
+  | "ppc64le" -> ELF64v2
+  | _ -> assert false
+
 (* Machine-specific command-line options *)
 
-let command_line_options = []
+let big_toc = ref false
+
+let command_line_options = [
+  "-flarge-toc", Arg.Set big_toc,
+     " Support TOC (table of contents) greater than 64 kbytes"
+]
 
 (* Specific operations *)
 
@@ -35,16 +58,18 @@ type addressing_mode =
 
 (* Sizes, endianness *)
 
-let big_endian = true
-
-let ppc64 =
-  match Config.model with "ppc64" -> true | _ -> false
+let big_endian =
+  match Config.model with
+  | "ppc" -> true
+  | "ppc64" -> true
+  | "ppc64le" -> false
+  | _ -> assert false
 
 let size_addr = if ppc64 then 8 else 4
 let size_int = size_addr
 let size_float = 8
 
-let allow_unaligned_access = false
+let allow_unaligned_access = true
 
 (* Behavior of division *)
 

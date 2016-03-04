@@ -1,15 +1,17 @@
-/***********************************************************************/
-/*                                                                     */
-/*                                OCaml                                */
-/*                                                                     */
-/*         Xavier Leroy and Damien Doligez, INRIA Rocquencourt         */
-/*                                                                     */
-/*  Copyright 1996 Institut National de Recherche en Informatique et   */
-/*  en Automatique.  All rights reserved.  This file is distributed    */
-/*  under the terms of the GNU Library General Public License, with    */
-/*  the special exception on linking described in file ../LICENSE.     */
-/*                                                                     */
-/***********************************************************************/
+/**************************************************************************/
+/*                                                                        */
+/*                                 OCaml                                  */
+/*                                                                        */
+/*          Xavier Leroy and Damien Doligez, INRIA Rocquencourt           */
+/*                                                                        */
+/*   Copyright 1996 Institut National de Recherche en Informatique et     */
+/*     en Automatique.                                                    */
+/*                                                                        */
+/*   All rights reserved.  This file is distributed under the terms of    */
+/*   the GNU Lesser General Public License version 2.1, with the          */
+/*   special exception on linking described in the file LICENSE.          */
+/*                                                                        */
+/**************************************************************************/
 
 #ifndef CAML_MLVALUES_H
 #define CAML_MLVALUES_H
@@ -38,8 +40,8 @@ extern "C" {
   bp: Pointer to the first byte of a block.  (a char *)
   op: Pointer to the first field of a block.  (a value *)
   hp: Pointer to the header of a block.  (a char *)
-  int32: Four bytes on all architectures.
-  int64: Eight bytes on all architectures.
+  int32_t: Four bytes on all architectures.
+  int64_t: Eight bytes on all architectures.
 
   Remark: A block size is always a multiple of the word size, and at least
           one word plus the header.
@@ -68,7 +70,7 @@ typedef uintnat mark_t;
 
 /* Conversion macro names are always of the form  "to_from". */
 /* Example: Val_long as in "Val from long" or "Val of long". */
-#define Val_long(x)     (((intnat)(x) << 1) + 1)
+#define Val_long(x)     ((intnat) (((uintnat)(x) << 1)) + 1)
 #define Long_val(x)     ((x) >> 1)
 #define Max_long (((intnat)1 << (8 * sizeof(value) - 2)) - 1)
 #define Min_long (-((intnat)1 << (8 * sizeof(value) - 2)))
@@ -101,7 +103,7 @@ bits  63    10 9     8 7   0
 #define Hd_op(op) (Hd_val (op))                        /* Also an l-value. */
 #define Hd_bp(bp) (Hd_val (bp))                        /* Also an l-value. */
 #define Hd_hp(hp) (* ((header_t *) (hp)))              /* Also an l-value. */
-#define Hp_val(val) ((char *) (((header_t *) (val)) - 1))
+#define Hp_val(val) (((header_t *) (val)) - 1)
 #define Hp_op(op) (Hp_val (op))
 #define Hp_bp(bp) (Hp_val (bp))
 #define Val_op(op) ((value) (op))
@@ -161,7 +163,7 @@ bits  63    10 9     8 7   0
 /* Fields are numbered from 0. */
 #define Field(x, i) (((value *)(x)) [i])           /* Also an l-value. */
 
-typedef int32 opcode_t;
+typedef int32_t opcode_t;
 typedef opcode_t * code_t;
 
 /* NOTE: [Forward_tag] and [Infix_tag] must be just under
@@ -217,7 +219,8 @@ CAMLextern value caml_hash_variant(char const * tag);
 #define Byte_u(x, i) (((unsigned char *) (x)) [i]) /* Also an l-value. */
 
 /* Abstract things.  Their contents is not traced by the GC; therefore they
-   must not contain any [value].
+   must not contain any [value]. Must have odd number so that headers with
+   this tag cannot be mistaken for pointers (see caml_obj_truncate).
 */
 #define Abstract_tag 251
 
@@ -225,6 +228,8 @@ CAMLextern value caml_hash_variant(char const * tag);
 #define String_tag 252
 #define String_val(x) ((char *) Bp_val(x))
 CAMLextern mlsize_t caml_string_length (value);   /* size in bytes */
+CAMLextern int caml_string_is_c_safe (value);
+  /* true if string contains no '\0' null characters */
 
 /* Floating-point numbers. */
 #define Double_tag 253
@@ -262,12 +267,12 @@ struct custom_operations;       /* defined in [custom.h] */
 
 /* Int32.t, Int64.t and Nativeint.t are represented as custom blocks. */
 
-#define Int32_val(v) (*((int32 *) Data_custom_val(v)))
+#define Int32_val(v) (*((int32_t *) Data_custom_val(v)))
 #define Nativeint_val(v) (*((intnat *) Data_custom_val(v)))
 #ifndef ARCH_ALIGN_INT64
-#define Int64_val(v) (*((int64 *) Data_custom_val(v)))
+#define Int64_val(v) (*((int64_t *) Data_custom_val(v)))
 #else
-CAMLextern int64 caml_Int64_val(value v);
+CAMLextern int64_t caml_Int64_val(value v);
 #define Int64_val(v) caml_Int64_val(v)
 #endif
 

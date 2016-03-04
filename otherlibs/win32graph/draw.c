@@ -1,15 +1,17 @@
-/***********************************************************************/
-/*                                                                     */
-/*                                OCaml                                */
-/*                                                                     */
-/*  Developed by Jacob Navia, based on code by J-M Geffroy and X Leroy */
-/*                                                                     */
-/*  Copyright 2001 Institut National de Recherche en Informatique et   */
-/*  en Automatique.  All rights reserved.  This file is distributed    */
-/*  under the terms of the GNU Library General Public License, with    */
-/*  the special exception on linking described in file ../../LICENSE.  */
-/*                                                                     */
-/***********************************************************************/
+/**************************************************************************/
+/*                                                                        */
+/*                                 OCaml                                  */
+/*                                                                        */
+/*   Developed by Jacob Navia, based on code by J-M Geffroy and X Leroy   */
+/*                                                                        */
+/*   Copyright 2001 Institut National de Recherche en Informatique et     */
+/*     en Automatique.                                                    */
+/*                                                                        */
+/*   All rights reserved.  This file is distributed under the terms of    */
+/*   the GNU Lesser General Public License version 2.1, with the          */
+/*   special exception on linking described in the file LICENSE.          */
+/*                                                                        */
+/**************************************************************************/
 
 #include <math.h>
 #include "caml/mlvalues.h"
@@ -500,7 +502,8 @@ CAMLprim value caml_gr_draw_image(value i, value x, value y)
         if (Mask(i) == NULL) {
                 if (grremember_mode) {
                         oldBmp = SelectObject(grwindow.tempDC,Data(i));
-                        BitBlt(grwindow.gcBitmap,xdst, ydst, Width(i), Height(i),
+                        BitBlt(grwindow.gcBitmap,xdst, ydst, Width(i),
+                               Height(i),
                                 grwindow.tempDC, 0, 0, SRCCOPY);
                         SelectObject(grwindow.tempDC,oldBmp);
                 }
@@ -514,11 +517,13 @@ CAMLprim value caml_gr_draw_image(value i, value x, value y)
         else {
                 if (grremember_mode) {
                         oldBmp = SelectObject(grwindow.tempDC,Mask(i));
-                        BitBlt(grwindow.gcBitmap,xdst, ydst, Width(i), Height(i),
-                                grwindow.tempDC, 0, 0, SRCAND);
+                        BitBlt(grwindow.gcBitmap,xdst, ydst, Width(i),
+                               Height(i),
+                               grwindow.tempDC, 0, 0, SRCAND);
                         SelectObject(grwindow.tempDC,Data(i));
-                        BitBlt(grwindow.gcBitmap,xdst, ydst, Width(i), Height(i),
-                                grwindow.tempDC, 0, 0, SRCPAINT);
+                        BitBlt(grwindow.gcBitmap,xdst, ydst, Width(i),
+                               Height(i),
+                               grwindow.tempDC, 0, 0, SRCPAINT);
                         SelectObject(grwindow.tempDC,oldBmp);
                 }
                 if (grdisplay_mode) {
@@ -567,7 +572,8 @@ CAMLprim value caml_gr_make_image(value matrix)
                                 int red = (col >> 16) & 0xFF;
                                 int green = (col >> 8) & 0xFF;
                                 int blue = col & 0xFF;
-                                SetPixel(grwindow.tempDC,j, i, RGB(red, green, blue));
+                                SetPixel(grwindow.tempDC,j, i,
+                                         RGB(red, green, blue));
                         }
                 }
         }
@@ -579,8 +585,9 @@ CAMLprim value caml_gr_make_image(value matrix)
                 oldBmp = SelectObject(grwindow.tempDC,Mask(img));
                 for (i = 0; i < height; i++) {
                         for (j = 0; j < width; j++) {
-                                int col = Long_val (Field (Field (matrix, i), j));
-                                SetPixel(grwindow.tempDC,j, i, col == -1 ? 0xFFFFFF : 0);
+                                int col = Long_val (Field (Field (matrix,i),j));
+                                SetPixel(grwindow.tempDC,j, i,
+                                         col == -1 ? 0xFFFFFF : 0);
                         }
                 }
                 SelectObject(grwindow.tempDC,oldBmp);

@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                             OCamldoc                                *)
-(*                                                                     *)
-(*            Maxence Guesdon, projet Cristal, INRIA Rocquencourt      *)
-(*                                                                     *)
-(*  Copyright 2001 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Maxence Guesdon, projet Cristal, INRIA Rocquencourt        *)
+(*                                                                        *)
+(*   Copyright 2001 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (** Environment for finding complete names from relative names. *)
 
@@ -55,7 +58,7 @@ let rec add_signature env root ?rel signat =
     | Types.Sig_typext (ident, _, _) -> { env with env_extensions = (rel_name ident, qualify ident) :: env.env_extensions }
     | Types.Sig_module (ident, md, _) ->
         let env2 =
-          match md.Types.md_type with (* A VOIR : le cas ou c'est un identificateur, dans ce cas on n'a pas de signature *)
+          match md.Types.md_type with (* FIXME: we don't have signature for identifiers *)
             Types.Mty_signature s -> add_signature env (qualify ident) ~rel: (rel_name ident) s
           |  _ -> env
         in
@@ -67,7 +70,7 @@ let rec add_signature env root ?rel signat =
               env
           | Some modtype ->
               match modtype with
-                 (* A VOIR : le cas ou c'est un identificateur, dans ce cas on n'a pas de signature *)
+                 (* FIXME: we don't have signature for identifiers *)
                 Types.Mty_signature s -> add_signature env (qualify ident) ~rel: (rel_name ident) s
               |  _ -> env
         in
@@ -237,7 +240,7 @@ let subst_class_type env t =
         let new_ct = iter ct in
         Types.Cty_constr (new_p, new_texp_list, new_ct)
     | Types.Cty_signature cs ->
-        (* on ne s'occupe pas des vals et methods *)
+        (* we don't handle vals and methods *)
         t
     | Types.Cty_arrow (l, texp, ct) ->
         let new_texp = subst_type env texp in

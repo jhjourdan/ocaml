@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (* Operations on module types *)
 
@@ -33,18 +36,23 @@ let freshen mty =
 let rec strengthen env mty p =
   match scrape env mty with
     Mty_signature sg ->
-      Mty_signature(strengthen_sig env sg p)
+      Mty_signature(strengthen_sig env sg p 0)
   | Mty_functor(param, arg, res)
     when !Clflags.applicative_functors && Ident.name param <> "*" ->
       Mty_functor(param, arg, strengthen env res (Papply(p, Pident param)))
   | mty ->
       mty
 
-and strengthen_sig env sg p =
+and strengthen_sig env sg p pos =
   match sg with
     [] -> []
   | (Sig_value(id, desc) as sigelt) :: rem ->
-      sigelt :: strengthen_sig env rem p
+      let nextpos = match desc.val_kind with Val_prim _ -> pos | _ -> pos+1 in
+      sigelt :: strengthen_sig env rem p nextpos
+  | Sig_type(id, {type_kind=Type_abstract}, rs) ::
+    (Sig_type(id', {type_private=Private}, _) :: _ as rem)
+    when Ident.name id = Ident.name id' ^ "#row" ->
+      strengthen_sig env rem p pos
   | Sig_type(id, decl, rs) :: rem ->
       let newdecl =
         match decl.type_manifest, decl.type_private, decl.type_kind with
@@ -59,13 +67,18 @@ and strengthen_sig env sg p =
             else
               { decl with type_manifest = manif }
       in
-      Sig_type(id, newdecl, rs) :: strengthen_sig env rem p
+      Sig_type(id, newdecl, rs) :: strengthen_sig env rem p pos
   | (Sig_typext(id, ext, es) as sigelt) :: rem ->
-      sigelt :: strengthen_sig env rem p
+      sigelt :: strengthen_sig env rem p (pos+1)
   | Sig_module(id, md, rs) :: rem ->
-      let str = strengthen_decl env md (Pdot(p, Ident.name id, nopos)) in
+      let str =
+        if Env.is_functor_arg p env then
+          strengthen_decl env md (Pdot(p, Ident.name id, pos))
+        else
+          {md with md_type = Mty_alias (Pdot(p, Ident.name id, pos))}
+      in
       Sig_module(id, str, rs)
-      :: strengthen_sig (Env.add_module_declaration id md env) rem p
+      :: strengthen_sig (Env.add_module_declaration id md env) rem p (pos+1)
       (* Need to add the module in case it defines manifest module types *)
   | Sig_modtype(id, decl) :: rem ->
       let newdecl =
@@ -76,12 +89,12 @@ and strengthen_sig env sg p =
             decl
       in
       Sig_modtype(id, newdecl) ::
-      strengthen_sig (Env.add_modtype id decl env) rem p
+      strengthen_sig (Env.add_modtype id decl env) rem p pos
       (* Need to add the module type in case it is manifest *)
   | (Sig_class(id, decl, rs) as sigelt) :: rem ->
-      sigelt :: strengthen_sig env rem p
+      sigelt :: strengthen_sig env rem p (pos+1)
   | (Sig_class_type(id, decl, rs) as sigelt) :: rem ->
-      sigelt :: strengthen_sig env rem p
+      sigelt :: strengthen_sig env rem p pos
 
 and strengthen_decl env md p =
   {md with md_type = strengthen env md.md_type p}
@@ -258,7 +271,13 @@ and contains_type_sig env = List.iter (contains_type_item env)
 and contains_type_item env = function
     Sig_type (_,({type_manifest = None} |
                  {type_kind = Type_abstract; type_private = Private}),_)
-  | Sig_modtype _ ->
+  | Sig_modtype _
+  | Sig_typext (_, {ext_args = Cstr_record _}, _) ->
+      (* We consider that extension constructors with an inlined
+         record create a type (the inlined record), even though
+         it would be technically safe to ignore that considering
+         the current constraints which guarantee that this type
+         is kept local to expressions.  *)
       raise Exit
   | Sig_module (_, {md_type = mty}, _) ->
       contains_type env mty
@@ -282,7 +301,7 @@ module P = struct
 end
 module PathSet = Set.Make (P)
 module PathMap = Map.Make (P)
-module IdentSet = Set.Make (struct type t = Ident.t let compare = compare end)
+module IdentSet = Set.Make (Ident)
 
 let rec get_prefixes = function
     Pident _ -> PathSet.empty

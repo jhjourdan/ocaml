@@ -1,22 +1,24 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the GNU Library General Public License, with    *)
-(*  the special exception on linking described in file ../LICENSE.     *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (* Hash tables *)
 
 external seeded_hash_param :
-  int -> int -> int -> 'a -> int = "caml_hash" "noalloc"
+  int -> int -> int -> 'a -> int = "caml_hash" [@@noalloc]
 external old_hash_param :
-  int -> int -> 'a -> int = "caml_hash_univ_param" "noalloc"
+  int -> int -> 'a -> int = "caml_hash_univ_param" [@@noalloc]
 
 let hash x = seeded_hash_param 10 100 0 x
 let hash_param n1 n2 x = seeded_hash_param n1 n2 0 x
@@ -47,6 +49,7 @@ let randomized_default =
 let randomized = ref randomized_default
 
 let randomize () = randomized := true
+let is_randomized () = !randomized
 
 let prng = lazy (Random.State.make_self_init())
 
@@ -158,7 +161,7 @@ let find_all h key =
 let replace h key info =
   let rec replace_bucket = function
     | Empty ->
-        raise Not_found
+        raise_notrace Not_found
     | Cons(k, i, next) ->
         if compare k key = 0
         then Cons(key, info, next)
@@ -189,6 +192,20 @@ let iter f h =
   let d = h.data in
   for i = 0 to Array.length d - 1 do
     do_bucket d.(i)
+  done
+
+let filter_map_inplace f h =
+  let rec do_bucket = function
+    | Empty ->
+        Empty
+    | Cons(k, d, rest) ->
+        match f k d with
+        | None -> do_bucket rest
+        | Some new_d -> Cons(k, new_d, do_bucket rest)
+  in
+  let d = h.data in
+  for i = 0 to Array.length d - 1 do
+    d.(i) <- do_bucket d.(i)
   done
 
 let fold f h init =
@@ -261,6 +278,7 @@ module type S =
     val replace : 'a t -> key -> 'a -> unit
     val mem : 'a t -> key -> bool
     val iter: (key -> 'a -> unit) -> 'a t -> unit
+    val filter_map_inplace: (key -> 'a -> 'a option) -> 'a t -> unit
     val fold: (key -> 'a -> 'b -> 'b) -> 'a t -> 'b -> 'b
     val length: 'a t -> int
     val stats: 'a t -> statistics
@@ -281,6 +299,7 @@ module type SeededS =
     val replace : 'a t -> key -> 'a -> unit
     val mem : 'a t -> key -> bool
     val iter : (key -> 'a -> unit) -> 'a t -> unit
+    val filter_map_inplace: (key -> 'a -> 'a option) -> 'a t -> unit
     val fold : (key -> 'a -> 'b -> 'b) -> 'a t -> 'b -> 'b
     val length : 'a t -> int
     val stats: 'a t -> statistics
@@ -350,7 +369,7 @@ module MakeSeeded(H: SeededHashedType): (SeededS with type key = H.t) =
     let replace h key info =
       let rec replace_bucket = function
         | Empty ->
-            raise Not_found
+            raise_notrace Not_found
         | Cons(k, i, next) ->
             if H.equal k key
             then Cons(key, info, next)
@@ -373,6 +392,7 @@ module MakeSeeded(H: SeededHashedType): (SeededS with type key = H.t) =
       mem_in_bucket h.data.(key_index h key)
 
     let iter = iter
+    let filter_map_inplace = filter_map_inplace
     let fold = fold
     let length = length
     let stats = stats

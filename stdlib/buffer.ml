@@ -1,15 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*   Pierre Weis and Xavier Leroy, projet Cristal, INRIA Rocquencourt  *)
-(*                                                                     *)
-(*  Copyright 1999 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the GNU Library General Public License, with    *)
-(*  the special exception on linking described in file ../LICENSE.     *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*    Pierre Weis and Xavier Leroy, projet Cristal, INRIA Rocquencourt    *)
+(*                                                                        *)
+(*   Copyright 1999 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (* Extensible buffers *)
 
@@ -39,7 +41,7 @@ let blit src srcoff dst dstoff len =
              || dstoff < 0 || dstoff > (Bytes.length dst) - len
   then invalid_arg "Buffer.blit"
   else
-    Bytes.blit src.buffer srcoff dst dstoff len
+    Bytes.unsafe_blit src.buffer srcoff dst dstoff len
 ;;
 
 let nth b ofs =
@@ -66,6 +68,8 @@ let resize b more =
     else failwith "Buffer.add: cannot grow buffer"
   end;
   let new_buffer = Bytes.create !new_len in
+  (* PR#6148: let's keep using [blit] rather than [unsafe_blit] in
+     this tricky function that is slow anyway. *)
   Bytes.blit b.buffer 0 new_buffer 0 b.position;
   b.buffer <- new_buffer;
   b.length <- !new_len
@@ -99,12 +103,20 @@ let add_bytes b s = add_string b (Bytes.unsafe_to_string s)
 let add_buffer b bs =
   add_subbytes b bs.buffer 0 bs.position
 
+(* read up to [len] bytes from [ic] into [b]. *)
+let rec add_channel_rec b ic len =
+  if len > 0 then (
+    let n = input ic b.buffer b.position len in
+    b.position <- b.position + n;
+    if n = 0 then raise End_of_file
+    else add_channel_rec b ic (len-n)   (* n <= len *)
+  )
+
 let add_channel b ic len =
   if len < 0 || len > Sys.max_string_length then   (* PR#5004 *)
     invalid_arg "Buffer.add_channel";
   if b.position + len > b.length then resize b len;
-  really_input ic b.buffer b.position len;
-  b.position <- b.position + len
+  add_channel_rec b ic len
 
 let output_buffer oc b =
   output oc b.buffer 0 b.position

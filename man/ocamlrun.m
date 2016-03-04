@@ -1,14 +1,17 @@
-.\"***********************************************************************
-.\"*                                                                     *
-.\"*                                OCaml                                *
-.\"*                                                                     *
-.\"*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *
-.\"*                                                                     *
-.\"*  Copyright 1996 Institut National de Recherche en Informatique et   *
-.\"*  en Automatique.  All rights reserved.  This file is distributed    *
-.\"*  under the terms of the Q Public License version 1.0.               *
-.\"*                                                                     *
-.\"***********************************************************************
+.\"**************************************************************************
+.\"*                                                                        *
+.\"*                                 OCaml                                  *
+.\"*                                                                        *
+.\"*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *
+.\"*                                                                        *
+.\"*   Copyright 1996 Institut National de Recherche en Informatique et     *
+.\"*     en Automatique.                                                    *
+.\"*                                                                        *
+.\"*   All rights reserved.  This file is distributed under the terms of    *
+.\"*   the GNU Lesser General Public License version 2.1, with the          *
+.\"*   special exception on linking described in the file LICENSE.          *
+.\"*                                                                        *
+.\"**************************************************************************
 .\"
 .TH OCAMLRUN 1
 
@@ -108,11 +111,15 @@ default to the library directory specified when compiling OCaml.
 .B OCAMLRUNPARAM
 Set the runtime system options and garbage collection parameters.
 (If OCAMLRUNPARAM is not set, CAMLRUNPARAM will be used instead.)
-This variable must be a sequence of parameter specifications.
-A parameter specification is an option letter followed by an =
+This variable must be a sequence of parameter specifications separated
+by commas.
+A parameter specification is a letter, optionally followed by an =
 sign, a decimal number (or a hexadecimal number prefixed by
 .BR 0x ),
-and an optional multiplier.  The options are documented below; the
+and an optional multiplier. If the letter is followed by anything
+else, the corresponding option is set to 1. Unknown letters
+are ignored.
+The options are documented below; the
 last six correspond to the fields of the
 .B control
 record documented in
@@ -195,6 +202,9 @@ shared libraries).
 
 .BR 0x200
 Computation of compaction-triggering condition.
+
+.BR 0x400
+Output GC statistics at program exit, in the same format as Gc.print_stat.
 
 The multiplier is
 .BR k ,

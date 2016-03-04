@@ -1,15 +1,17 @@
-/***********************************************************************/
-/*                                                                     */
-/*                                OCaml                                */
-/*                                                                     */
-/*         Xavier Leroy and Damien Doligez, INRIA Rocquencourt         */
-/*                                                                     */
-/*  Copyright 1995 Institut National de Recherche en Informatique et   */
-/*  en Automatique.  All rights reserved.  This file is distributed    */
-/*  under the terms of the GNU Library General Public License, with    */
-/*  the special exception on linking described in file ../../LICENSE.  */
-/*                                                                     */
-/***********************************************************************/
+/**************************************************************************/
+/*                                                                        */
+/*                                 OCaml                                  */
+/*                                                                        */
+/*          Xavier Leroy and Damien Doligez, INRIA Rocquencourt           */
+/*                                                                        */
+/*   Copyright 1995 Institut National de Recherche en Informatique et     */
+/*     en Automatique.                                                    */
+/*                                                                        */
+/*   All rights reserved.  This file is distributed under the terms of    */
+/*   the GNU Lesser General Public License version 2.1, with the          */
+/*   special exception on linking described in the file LICENSE.          */
+/*                                                                        */
+/**************************************************************************/
 
 #include "caml/alloc.h"
 #include "caml/backtrace.h"
@@ -80,7 +82,7 @@ struct caml_thread_struct {
   struct longjmp_buffer * external_raise; /* Saved external_raise */
 #endif
   int backtrace_pos;            /* Saved backtrace_pos */
-  code_t * backtrace_buffer;    /* Saved backtrace_buffer */
+  backtrace_slot * backtrace_buffer;    /* Saved backtrace_buffer */
   value backtrace_last_exn;     /* Saved backtrace_last_exn (root) */
 };
 
@@ -95,10 +97,10 @@ static caml_thread_t curr_thread = NULL;
 /* The master lock protecting the OCaml runtime system */
 static st_masterlock caml_master_lock;
 
-/* Whether the ``tick'' thread is already running */
+/* Whether the "tick" thread is already running */
 static int caml_tick_thread_running = 0;
 
-/* The thread identifier of the ``tick'' thread */
+/* The thread identifier of the "tick" thread */
 static st_thread_id caml_tick_thread_id;
 
 /* The key used for storing the thread descriptor in the specific data
@@ -228,7 +230,7 @@ static void caml_io_mutex_lock(struct channel *chan)
   st_mutex mutex = chan->mutex;
 
   if (mutex == NULL) {
-    st_mutex_create(&mutex);
+    st_check_error(st_mutex_create(&mutex), "channel locking"); /*PR#7038*/
     chan->mutex = mutex;
   }
   /* PR#4351: first try to acquire mutex without releasing the master lock */
@@ -444,7 +446,12 @@ CAMLprim value caml_thread_initialize(value unit)   /* ML */
 
 CAMLprim value caml_thread_cleanup(value unit)   /* ML */
 {
-  if (caml_tick_thread_running) st_thread_kill(caml_tick_thread_id);
+  if (caml_tick_thread_running){
+    caml_tick_thread_stop = 1;
+    st_thread_join(caml_tick_thread_id);
+    caml_tick_thread_stop = 0;
+    caml_tick_thread_running = 0;
+  }
   return Val_unit;
 }
 

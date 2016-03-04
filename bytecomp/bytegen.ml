@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (*  bytegen.ml : translation of lambda terms to lists of instructions. *)
 
@@ -140,22 +143,28 @@ let rec check_recordwith_updates id e =
 ;;
 
 let rec size_of_lambda = function
-  | Lfunction(kind, params, body) as funct ->
-      RHS_function (1 + IdentSet.cardinal(free_variables funct), List.length params)
+  | Lfunction{kind; params; body} as funct ->
+      RHS_function (1 + IdentSet.cardinal(free_variables funct),
+                    List.length params)
   | Llet (Strict, id, Lprim (Pduprecord (kind, size, _), _), body)
     when check_recordwith_updates id body ->
       begin match kind with
-      | Record_regular -> RHS_block size
+      | Record_regular | Record_inlined _ -> RHS_block size
       | Record_float -> RHS_floatblock size
+      | Record_extension -> RHS_block (size + 1)
       end
   | Llet(str, id, arg, body) -> size_of_lambda body
   | Lletrec(bindings, body) -> size_of_lambda body
   | Lprim(Pmakeblock(tag, mut, _), args) -> RHS_block (List.length args)
-  | Lprim (Pmakearray ((Paddrarray|Pintarray), _), args) ->
+  | Lprim (Pmakearray ((Paddrarray|Pintarray), _, _), args) ->
       RHS_block (List.length args)
-  | Lprim (Pmakearray (Pfloatarray, _), args) -> RHS_floatblock (List.length args)
-  | Lprim (Pmakearray (Pgenarray, _), args) -> assert false
-  | Lprim (Pduprecord (Record_regular, size, _), args) -> RHS_block size
+  | Lprim (Pmakearray (Pfloatarray, _, _), args) ->
+      RHS_floatblock (List.length args)
+  | Lprim (Pmakearray (Pgenarray, _, _), args) -> assert false
+  | Lprim (Pduprecord ((Record_regular | Record_inlined _), size, _), args) ->
+      RHS_block size
+  | Lprim (Pduprecord (Record_extension, size, _), args) ->
+      RHS_block (size + 1)
   | Lprim (Pduprecord (Record_float, size, _), args) -> RHS_floatblock size
   | Levent (lam, _) -> size_of_lambda lam
   | Lsequence (lam, lam') -> size_of_lambda lam'
@@ -303,9 +312,9 @@ let comp_primitive p args =
   | Pintcomp cmp -> Kintcomp cmp
   | Pmakeblock(tag, mut, _) -> Kmakeblock(List.length args, tag)
   | Pfield n -> Kgetfield n
-  | Psetfield(n, ptr) -> Ksetfield n
+  | Psetfield(n, ptr, _init) -> Ksetfield n
   | Pfloatfield n -> Kgetfloatfield n
-  | Psetfloatfield n -> Ksetfloatfield n
+  | Psetfloatfield (n, _init) -> Ksetfloatfield n
   | Pduprecord _ -> Kccall("caml_obj_dup", 1)
   | Pccall p -> Kccall(p.prim_name, p.prim_arity)
   | Pnegint -> Knegint
@@ -364,6 +373,8 @@ let comp_primitive p args =
      let const_name = match c with
        | Big_endian -> "big_endian"
        | Word_size -> "word_size"
+       | Int_size -> "int_size"
+       | Max_wosize -> "max_wosize"
        | Ostype_unix -> "ostype_unix"
        | Ostype_win32 -> "ostype_win32"
        | Ostype_cygwin -> "ostype_cygwin" in
@@ -446,7 +457,7 @@ let rec comp_expr env exp sz cont =
       end
   | Lconst cst ->
       Kconst cst :: cont
-  | Lapply(func, args, loc) ->
+  | Lapply{ap_func = func; ap_args = args} ->
       let nargs = List.length args in
       if is_tailcall cont then begin
         comp_args env args sz
@@ -486,7 +497,7 @@ let rec comp_expr env exp sz cont =
           comp_args env args' (sz + 3)
             (getmethod :: Kapply nargs :: cont1)
         end
-  | Lfunction(kind, params, body) -> (* assume kind = Curried *)
+  | Lfunction{kind; params; body} -> (* assume kind = Curried *)
       let lbl = new_label() in
       let fv = IdentSet.elements(free_variables exp) in
       let to_compile =
@@ -501,7 +512,7 @@ let rec comp_expr env exp sz cont =
           (add_pop 1 cont))
   | Lletrec(decl, body) ->
       let ndecl = List.length decl in
-      if List.for_all (function (_, Lfunction(_,_,_)) -> true | _ -> false)
+      if List.for_all (function (_, Lfunction _) -> true | _ -> false)
                       decl then begin
         (* let rec of functions *)
         let fv =
@@ -509,7 +520,7 @@ let rec comp_expr env exp sz cont =
         let rec_idents = List.map (fun (id, lam) -> id) decl in
         let rec comp_fun pos = function
             [] -> []
-          | (id, Lfunction(kind, params, body)) :: rem ->
+          | (id, Lfunction{kind; params; body}) :: rem ->
               let lbl = new_label() in
               let to_compile =
                 { params = params; body = body; label = lbl; free_vars = fv;
@@ -546,14 +557,16 @@ let rec comp_expr env exp sz cont =
               comp_init (add_var id (sz+1) new_env) (sz+1) rem
         and comp_nonrec new_env sz i = function
           | [] -> comp_rec new_env sz ndecl decl_size
-          | (id, exp, (RHS_block _ | RHS_floatblock _ | RHS_function _)) :: rem ->
+          | (id, exp, (RHS_block _ | RHS_floatblock _ | RHS_function _))
+            :: rem ->
               comp_nonrec new_env sz (i-1) rem
           | (id, exp, RHS_nonrec) :: rem ->
               comp_expr new_env exp sz
                 (Kassign (i-1) :: comp_nonrec new_env sz (i-1) rem)
         and comp_rec new_env sz i = function
           | [] -> comp_expr new_env body sz (add_pop ndecl cont)
-          | (id, exp, (RHS_block _ | RHS_floatblock _ | RHS_function _)) :: rem ->
+          | (id, exp, (RHS_block _ | RHS_floatblock _ | RHS_function _))
+            :: rem ->
               comp_expr new_env exp sz
                 (Kpush :: Kacc i :: Kccall("caml_update_dummy", 2) ::
                  comp_rec new_env sz (i-1) rem)
@@ -562,13 +575,18 @@ let rec comp_expr env exp sz cont =
         in
         comp_init env sz decl_size
       end
-  | Lprim(Pidentity, [arg]) ->
+  | Lprim((Pidentity | Popaque), [arg]) ->
       comp_expr env arg sz cont
   | Lprim(Pignore, [arg]) ->
       comp_expr env arg sz (add_const_unit cont)
   | Lprim(Pdirapply loc, [func;arg])
   | Lprim(Prevapply loc, [arg;func]) ->
-      let exp = Lapply(func, [arg], loc) in
+      let exp = Lapply{ap_should_be_tailcall=false;
+                       ap_loc=loc;
+                       ap_func=func;
+                       ap_args=[arg];
+                       ap_inlined=Default_inline;
+                       ap_specialised=Default_specialise} in
       comp_expr env exp sz cont
   | Lprim(Pnot, [arg]) ->
       let newcont =
@@ -619,7 +637,7 @@ let rec comp_expr env exp sz cont =
         (Kpush::
          Kconst (Const_base (Const_int n))::
          Kaddint::cont)
-  | Lprim(Pmakearray (kind, _), args) ->
+  | Lprim(Pmakearray (kind, _, _), args) ->
       begin match kind with
         Pintarray | Paddrarray ->
           comp_args env args sz (Kmakeblock(List.length args, 0) :: cont)
@@ -632,6 +650,16 @@ let rec comp_expr env exp sz cont =
                  (Kmakeblock(List.length args, 0) ::
                   Kccall("caml_make_array", 1) :: cont)
       end
+  | Lprim (Pduparray (kind, mutability), [Lprim (Pmakearray (kind',_, loc),args)]) ->
+      assert (kind = kind');
+      comp_expr env (Lprim (Pmakearray (kind, mutability, loc), args)) sz cont
+  | Lprim (Pduparray _, [arg]) ->
+      let prim_obj_dup =
+        Primitive.simple ~name:"caml_obj_dup" ~arity:1 ~alloc:true
+      in
+      comp_expr env (Lprim (Pccall prim_obj_dup, [arg])) sz cont
+  | Lprim (Pduparray _, _) ->
+      Misc.fatal_error "Bytegen.comp_expr: Pduparray takes exactly one arg"
 (* Integer first for enabling futher optimization (cf. emitcode.ml)  *)
   | Lprim (Pintcomp c, [arg ; (Lconst _ as k)]) ->
       let p = Pintcomp (commute_comparison c)
@@ -806,12 +834,16 @@ let rec comp_expr env exp sz cont =
           let c = comp_expr env lam sz cont in
           let ev = event Event_pseudo Event_function in
           add_event ev c
+      | Lev_pseudo ->
+          let c = comp_expr env lam sz cont in
+          let ev = event Event_pseudo Event_other in
+          add_event ev c
       | Lev_after _ when is_tailcall cont -> (* don't destroy tail call opt *)
           comp_expr env lam sz cont
       | Lev_after ty ->
           let info =
             match lam with
-              Lapply(_, args, _)      -> Event_return (List.length args)
+              Lapply{ap_args = args}  -> Event_return (List.length args)
             | Lsend(_, _, _, args, _) -> Event_return (List.length args + 1)
             | _                       -> Event_other
           in
@@ -868,10 +900,6 @@ and comp_binary_test env cond ifso ifnot sz cont =
             comp_expr env ifso sz (branch_end :: cont2) in
 
   comp_expr env cond sz cont_cond
-
-(* Compile string switch *)
-
-and comp_string_switch env arg cases default sz cont = ()
 
 (**** Compilation of a code block (with tracking of stack usage) ****)
 

@@ -1,15 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*  Xavier Leroy and Pascal Cuoq, projet Cristal, INRIA Rocquencourt   *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the GNU Library General Public License, with    *)
-(*  the special exception on linking described in file ../../LICENSE.  *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*   Xavier Leroy and Pascal Cuoq, projet Cristal, INRIA Rocquencourt     *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (* Initialization *)
 
@@ -251,7 +253,7 @@ type stats =
     st_ctime : float }
 
 external stat : string -> stats = "unix_stat"
-let lstat = stat
+external lstat : string -> stats = "unix_lstat"
 external fstat : file_descr -> stats = "unix_fstat"
 let isatty fd =
   match (fstat fd).st_kind with S_CHR -> true | _ -> false
@@ -287,7 +289,7 @@ module LargeFile =
         st_ctime : float;
       }
     external stat : string -> stats = "unix_stat_64"
-    let lstat = stat
+    external lstat : string -> stats = "unix_lstat_64"
     external fstat : file_descr -> stats = "unix_fstat_64"
   end
 
@@ -373,8 +375,23 @@ let mkfifo name perm = invalid_arg "Unix.mkfifo not implemented"
 
 (* Symbolic links *)
 
-let readlink path = invalid_arg "Unix.readlink not implemented"
-let symlink path1 path2 = invalid_arg "Unix.symlink not implemented"
+external readlink : string -> string = "unix_readlink"
+external symlink_stub : bool -> string -> string -> unit = "unix_symlink"
+
+let symlink ?to_dir source dest =
+  let to_dir =
+    match to_dir with
+      Some to_dir ->
+        to_dir
+    | None ->
+        try
+          LargeFile.((stat source).st_kind = S_DIR)
+        with _ ->
+          false
+  in
+    symlink_stub to_dir source dest
+
+external has_symlink : unit -> bool = "unix_has_symlink"
 
 (* Locking *)
 
@@ -429,7 +446,8 @@ external gmtime : float -> tm = "unix_gmtime"
 external localtime : float -> tm = "unix_localtime"
 external mktime : tm -> float * tm = "unix_mktime"
 let alarm n = invalid_arg "Unix.alarm not implemented"
-external sleep : int -> unit = "unix_sleep"
+external sleepf : float -> unit = "unix_sleep"
+let sleep n = sleepf (float n)
 external times: unit -> process_times = "unix_times"
 external utimes : string -> float -> float -> unit = "unix_utimes"
 
@@ -813,12 +831,18 @@ let make_cmdline args =
     else f in
   String.concat " " (List.map maybe_quote (Array.to_list args))
 
+let make_process_env env =
+  Array.iter
+    (fun s -> if String.contains s '\000' then raise(Unix_error(EINVAL, "", s)))
+    env;
+  String.concat "\000" (Array.to_list env) ^ "\000"
+
 let create_process prog args fd1 fd2 fd3 =
   win_create_process prog (make_cmdline args) None fd1 fd2 fd3
 
 let create_process_env prog args env fd1 fd2 fd3 =
   win_create_process prog (make_cmdline args)
-                     (Some(String.concat "\000" (Array.to_list env) ^ "\000"))
+                     (Some(make_process_env env))
                      fd1 fd2 fd3
 
 external system: string -> process_status = "win_system"
@@ -877,7 +901,7 @@ let open_process_full cmd env =
   let inchan = in_channel_of_descr in_read in
   let outchan = out_channel_of_descr out_write in
   let errchan = in_channel_of_descr err_read in
-  open_proc cmd (Some(String.concat "\000" (Array.to_list env) ^ "\000"))
+  open_proc cmd (Some(make_process_env env))
                 (Process_full(inchan, outchan, errchan))
                 out_read in_write err_write;
   close out_read; close in_write; close err_write;

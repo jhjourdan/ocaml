@@ -1,15 +1,17 @@
-/***********************************************************************/
-/*                                                                     */
-/*                                OCaml                                */
-/*                                                                     */
-/*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         */
-/*                                                                     */
-/*  Copyright 1996 Institut National de Recherche en Informatique et   */
-/*  en Automatique.  All rights reserved.  This file is distributed    */
-/*  under the terms of the GNU Library General Public License, with    */
-/*  the special exception on linking described in file ../LICENSE.     */
-/*                                                                     */
-/***********************************************************************/
+/**************************************************************************/
+/*                                                                        */
+/*                                 OCaml                                  */
+/*                                                                        */
+/*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           */
+/*                                                                        */
+/*   Copyright 1996 Institut National de Recherche en Informatique et     */
+/*     en Automatique.                                                    */
+/*                                                                        */
+/*   All rights reserved.  This file is distributed under the terms of    */
+/*   the GNU Lesser General Public License version 2.1, with the          */
+/*   special exception on linking described in the file LICENSE.          */
+/*                                                                        */
+/**************************************************************************/
 
 /* Operations on objects */
 
@@ -25,6 +27,7 @@
 #include "caml/mlvalues.h"
 #include "caml/prims.h"
 
+/* [size] is a value encoding a number of bytes */
 CAMLprim value caml_static_alloc(value size)
 {
   return (value) caml_stat_alloc((asize_t) Long_val(size));
@@ -35,21 +38,6 @@ CAMLprim value caml_static_free(value blk)
   caml_stat_free((void *) blk);
   return Val_unit;
 }
-
-/* signal to the interpreter machinery that a bytecode is no more
-   needed (before freeing it) - this might be useful for a JIT
-   implementation */
-
-CAMLprim value caml_static_release_bytecode(value blk, value size)
-{
-#ifndef NATIVE_CODE
-  caml_release_bytecode((code_t) blk, (asize_t) Long_val(size));
-#else
-  caml_failwith("Meta.static_release_bytecode impossible with native code");
-#endif
-  return Val_unit;
-}
-
 
 CAMLprim value caml_static_resize(value blk, value new_size)
 {
@@ -80,6 +68,7 @@ CAMLprim value caml_obj_set_tag (value arg, value new_tag)
   return Val_unit;
 }
 
+/* [size] is a value encoding a number of blocks */
 CAMLprim value caml_obj_block(value tag, value size)
 {
   value res;
@@ -124,9 +113,15 @@ CAMLprim value caml_obj_dup(value arg)
    to 0 or greater than the current size.
 
    algorithm:
-   Change the length field of the header.  Make up a white object
+   Change the length field of the header.  Make up a black object
    with the leftover part of the object: this is needed in the major
-   heap and harmless in the minor heap.
+   heap and harmless in the minor heap. The object cannot be white
+   because there may still be references to it in the ref table. By
+   using a black object we ensure that the ref table will be emptied
+   before the block is reallocated (since there must be a minor
+   collection within each major cycle).
+
+   [newsize] is a value encoding a number of words.
 */
 CAMLprim value caml_obj_truncate (value v, value newsize)
 {
@@ -158,7 +153,7 @@ CAMLprim value caml_obj_truncate (value v, value newsize)
      look like a pointer because there may be some references to it in
      ref_table. */
   Field (v, new_wosize) =
-    Make_header (Wosize_whsize (wosize-new_wosize), 1, Caml_white);
+    Make_header (Wosize_whsize (wosize-new_wosize), Abstract_tag, Caml_black);
   Hd_val (v) = Make_header (new_wosize, tag, color);
   return Val_unit;
 }
@@ -254,6 +249,12 @@ CAMLprim value caml_set_oo_id (value obj) {
   Field(obj, 1) = oo_last_id;
   oo_last_id += 2;
   return obj;
+}
+
+CAMLprim value caml_fresh_oo_id (value v) {
+  v = oo_last_id;
+  oo_last_id += 2;
+  return v;
 }
 
 CAMLprim value caml_int_as_pointer (value n) {

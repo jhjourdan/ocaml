@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (* Introduction of closures, uncurrying, recognition of direct calls *)
 
@@ -83,6 +86,7 @@ let occurs_var var u =
     | Uassign(id, u) -> id = var || occurs u
     | Usend(_, met, obj, args, _) ->
         occurs met || occurs obj || List.exists occurs args
+    | Uunreachable -> false
   and occurs_array a =
     try
       for i = 0 to Array.length a - 1 do
@@ -92,52 +96,6 @@ let occurs_var var u =
     with Exit ->
       true
   in occurs u
-
-(* Split a function with default parameters into a wrapper and an
-   inner function.  The wrapper fills in missing optional parameters
-   with their default value and tail-calls the inner function.  The
-   wrapper can then hopefully be inlined on most call sites to avoid
-   the overhead associated with boxing an optional argument with a
-   'Some' constructor, only to deconstruct it immediately in the
-   function's body. *)
-
-let split_default_wrapper fun_id kind params body =
-  let rec aux map = function
-    | Llet(Strict, id, (Lifthenelse(Lvar optparam, _, _) as def), rest) when
-        Ident.name optparam = "*opt*" && List.mem optparam params
-          && not (List.mem_assoc optparam map)
-      ->
-        let wrapper_body, inner = aux ((optparam, id) :: map) rest in
-        Llet(Strict, id, def, wrapper_body), inner
-    | _ when map = [] -> raise Exit
-    | body ->
-        (* Check that those *opt* identifiers don't appear in the remaining
-           body. This should not appear, but let's be on the safe side. *)
-        let fv = Lambda.free_variables body in
-        List.iter (fun (id, _) -> if IdentSet.mem id fv then raise Exit) map;
-
-        let inner_id = Ident.create (Ident.name fun_id ^ "_inner") in
-        let map_param p = try List.assoc p map with Not_found -> p in
-        let args = List.map (fun p -> Lvar (map_param p)) params in
-        let wrapper_body = Lapply (Lvar inner_id, args, Location.none) in
-
-        let inner_params = List.map map_param params in
-        let new_ids = List.map Ident.rename inner_params in
-        let subst = List.fold_left2
-            (fun s id new_id ->
-               Ident.add id (Lvar new_id) s)
-            Ident.empty inner_params new_ids
-        in
-        let body = Lambda.subst_lambda subst body in
-        let inner_fun = Lfunction(Curried, new_ids, body) in
-        (wrapper_body, (inner_id, inner_fun))
-  in
-  try
-    let wrapper_body, inner = aux [] body in
-    [(fun_id, Lfunction(kind, params, wrapper_body)); inner]
-  with Exit ->
-    [(fun_id, Lfunction(kind, params, body))]
-
 
 (* Determine whether the estimated size of a clambda term is below
    some threshold *)
@@ -149,15 +107,22 @@ let prim_size prim args =
   | Psetglobal id -> 1
   | Pmakeblock(tag, mut, _) -> 5 + List.length args
   | Pfield f -> 1
-  | Psetfield(f, isptr) -> if isptr then 4 else 1
+  | Psetfield(f, isptr, init) ->
+    begin match init with
+    | Initialization -> 1  (* never causes a write barrier hit *)
+    | Assignment ->
+      match isptr with
+      | Pointer -> 4
+      | Immediate -> 1
+    end
   | Pfloatfield f -> 1
-  | Psetfloatfield f -> 1
+  | Psetfloatfield (f, _) -> 1
   | Pduprecord _ -> 10 + List.length args
   | Pccall p -> (if p.prim_alloc then 10 else 4) + List.length args
   | Praise _ -> 4
   | Pstringlength -> 5
   | Pstringrefs | Pstringsets -> 6
-  | Pmakearray (kind, _) -> 5 + List.length args
+  | Pmakearray _ -> 5 + List.length args
   | Parraylength kind -> if kind = Pgenarray then 6 else 2
   | Parrayrefu kind -> if kind = Pgenarray then 12 else 2
   | Parraysetu kind -> if kind = Pgenarray then 16 else 4
@@ -226,6 +191,7 @@ let lambda_smaller lam threshold =
     | Usend(_, met, obj, args, _) ->
         size := !size + 8;
         lambda_size met; lambda_size obj; lambda_list_size args
+    | Uunreachable -> ()
   and lambda_list_size l = List.iter lambda_size l
   and lambda_array_size a = Array.iter lambda_size a in
   try
@@ -249,7 +215,8 @@ let rec is_pure_clambda = function
 
 let make_const c = (Uconst c, Value_const c)
 let make_const_ref c =
-  make_const(Uconst_ref(Compilenv.new_structured_constant ~shared:true c, c))
+  make_const(Uconst_ref(Compilenv.new_structured_constant ~shared:true c,
+    Some c))
 let make_const_int n = make_const (Uconst_int n)
 let make_const_ptr n = make_const (Uconst_ptr n)
 let make_const_bool b = make_const_ptr(if b then 1 else 0)
@@ -311,7 +278,7 @@ let simplif_arith_prim_pure fpc p (args, approxs) dbg =
       | _ -> default
       end
   (* float *)
-  | [Value_const(Uconst_ref(_, Uconst_float n1))] when fpc ->
+  | [Value_const(Uconst_ref(_, Some (Uconst_float n1)))] when fpc ->
       begin match p with
       | Pintoffloat -> make_const_int (int_of_float n1)
       | Pnegfloat -> make_const_float (-. n1)
@@ -319,8 +286,8 @@ let simplif_arith_prim_pure fpc p (args, approxs) dbg =
       | _ -> default
       end
   (* float, float *)
-  | [Value_const(Uconst_ref(_, Uconst_float n1));
-     Value_const(Uconst_ref(_, Uconst_float n2))] when fpc ->
+  | [Value_const(Uconst_ref(_, Some (Uconst_float n1)));
+     Value_const(Uconst_ref(_, Some (Uconst_float n2)))] when fpc ->
       begin match p with
       | Paddfloat -> make_const_float (n1 +. n2)
       | Psubfloat -> make_const_float (n1 -. n2)
@@ -330,7 +297,7 @@ let simplif_arith_prim_pure fpc p (args, approxs) dbg =
       | _ -> default
       end
   (* nativeint *)
-  | [Value_const(Uconst_ref(_, Uconst_nativeint n))] ->
+  | [Value_const(Uconst_ref(_, Some (Uconst_nativeint n)))] ->
       begin match p with
       | Pintofbint Pnativeint -> make_const_int (Nativeint.to_int n)
       | Pcvtbint(Pnativeint, Pint32) -> make_const_int32 (Nativeint.to_int32 n)
@@ -339,8 +306,8 @@ let simplif_arith_prim_pure fpc p (args, approxs) dbg =
       | _ -> default
       end
   (* nativeint, nativeint *)
-  | [Value_const(Uconst_ref(_, Uconst_nativeint n1));
-     Value_const(Uconst_ref(_, Uconst_nativeint n2))] ->
+  | [Value_const(Uconst_ref(_, Some (Uconst_nativeint n1)));
+     Value_const(Uconst_ref(_, Some (Uconst_nativeint n2)))] ->
       begin match p with
       | Paddbint Pnativeint -> make_const_natint (Nativeint.add n1 n2)
       | Psubbint Pnativeint -> make_const_natint (Nativeint.sub n1 n2)
@@ -356,7 +323,7 @@ let simplif_arith_prim_pure fpc p (args, approxs) dbg =
       | _ -> default
       end
   (* nativeint, int *)
-  | [Value_const(Uconst_ref(_, Uconst_nativeint n1));
+  | [Value_const(Uconst_ref(_, Some (Uconst_nativeint n1)));
      Value_const(Uconst_int n2)] ->
       begin match p with
       | Plslbint Pnativeint when 0 <= n2 && n2 < 8 * Arch.size_int ->
@@ -368,7 +335,7 @@ let simplif_arith_prim_pure fpc p (args, approxs) dbg =
       | _ -> default
       end
   (* int32 *)
-  | [Value_const(Uconst_ref(_, Uconst_int32 n))] ->
+  | [Value_const(Uconst_ref(_, Some (Uconst_int32 n)))] ->
       begin match p with
       | Pintofbint Pint32 -> make_const_int (Int32.to_int n)
       | Pcvtbint(Pint32, Pnativeint) -> make_const_natint (Nativeint.of_int32 n)
@@ -377,8 +344,8 @@ let simplif_arith_prim_pure fpc p (args, approxs) dbg =
       | _ -> default
       end
   (* int32, int32 *)
-  | [Value_const(Uconst_ref(_, Uconst_int32 n1));
-     Value_const(Uconst_ref(_, Uconst_int32 n2))] ->
+  | [Value_const(Uconst_ref(_, Some (Uconst_int32 n1)));
+     Value_const(Uconst_ref(_, Some (Uconst_int32 n2)))] ->
       begin match p with
       | Paddbint Pint32 -> make_const_int32 (Int32.add n1 n2)
       | Psubbint Pint32 -> make_const_int32 (Int32.sub n1 n2)
@@ -392,7 +359,7 @@ let simplif_arith_prim_pure fpc p (args, approxs) dbg =
       | _ -> default
       end
   (* int32, int *)
-  | [Value_const(Uconst_ref(_, Uconst_int32 n1));
+  | [Value_const(Uconst_ref(_, Some (Uconst_int32 n1)));
      Value_const(Uconst_int n2)] ->
       begin match p with
       | Plslbint Pint32 when 0 <= n2 && n2 < 32 ->
@@ -404,7 +371,7 @@ let simplif_arith_prim_pure fpc p (args, approxs) dbg =
       | _ -> default
       end
   (* int64 *)
-  | [Value_const(Uconst_ref(_, Uconst_int64 n))] ->
+  | [Value_const(Uconst_ref(_, Some (Uconst_int64 n)))] ->
       begin match p with
       | Pintofbint Pint64 -> make_const_int (Int64.to_int n)
       | Pcvtbint(Pint64, Pint32) -> make_const_int32 (Int64.to_int32 n)
@@ -413,8 +380,8 @@ let simplif_arith_prim_pure fpc p (args, approxs) dbg =
       | _ -> default
       end
   (* int64, int64 *)
-  | [Value_const(Uconst_ref(_, Uconst_int64 n1));
-     Value_const(Uconst_ref(_, Uconst_int64 n2))] ->
+  | [Value_const(Uconst_ref(_, Some (Uconst_int64 n1)));
+     Value_const(Uconst_ref(_, Some (Uconst_int64 n2)))] ->
       begin match p with
       | Paddbint Pint64 -> make_const_int64 (Int64.add n1 n2)
       | Psubbint Pint64 -> make_const_int64 (Int64.sub n1 n2)
@@ -428,7 +395,7 @@ let simplif_arith_prim_pure fpc p (args, approxs) dbg =
       | _ -> default
       end
   (* int64, int *)
-  | [Value_const(Uconst_ref(_, Uconst_int64 n1));
+  | [Value_const(Uconst_ref(_, Some (Uconst_int64 n1)));
      Value_const(Uconst_int n2)] ->
       begin match p with
       | Plslbint Pint64 when 0 <= n2 && n2 < 64 ->
@@ -446,7 +413,8 @@ let simplif_arith_prim_pure fpc p (args, approxs) dbg =
 
 let field_approx n = function
   | Value_tuple a when n < Array.length a -> a.(n)
-  | Value_const (Uconst_ref(_, Uconst_block(_, l))) when n < List.length l ->
+  | Value_const (Uconst_ref(_, Some (Uconst_block(_, l))))
+    when n < List.length l ->
       Value_const (List.nth l n)
   | _ -> Value_unknown
 
@@ -463,19 +431,19 @@ let simplif_prim_pure fpc p (args, approxs) dbg =
         let name =
           Compilenv.new_structured_constant cst ~shared:true
         in
-        make_const (Uconst_ref (name, cst))
+        make_const (Uconst_ref (name, Some cst))
       with Exit ->
         (Uprim(p, args, dbg), Value_tuple (Array.of_list approxs))
       end
   (* Field access *)
-  | Pfield n, _, [ Value_const(Uconst_ref(_, Uconst_block(_, l))) ]
+  | Pfield n, _, [ Value_const(Uconst_ref(_, Some (Uconst_block(_, l)))) ]
     when n < List.length l ->
       make_const (List.nth l n)
   | Pfield n, [ Uprim(Pmakeblock _, ul, _) ], [approx]
     when n < List.length ul ->
       (List.nth ul n, field_approx n approx)
   (* Strings *)
-  | Pstringlength, _, [ Value_const(Uconst_ref(_, Uconst_string s)) ] ->
+  | Pstringlength, _, [ Value_const(Uconst_ref(_, Some (Uconst_string s))) ] ->
       make_const_int (String.length s)
   (* Identity *)
   | Pidentity, [arg1], [app1] ->
@@ -493,6 +461,8 @@ let simplif_prim_pure fpc p (args, approxs) dbg =
       begin match c with
         | Big_endian -> make_const_bool Arch.big_endian
         | Word_size -> make_const_int (8*Arch.size_int)
+        | Int_size -> make_const_int (8*Arch.size_int - 1)
+        | Max_wosize -> make_const_int ((1 lsl ((8*Arch.size_int) - 10)) - 1 )
         | Ostype_unix -> make_const_bool (Sys.os_type = "Unix")
         | Ostype_win32 -> make_const_bool (Sys.os_type = "Win32")
         | Ostype_cygwin -> make_const_bool (Sys.os_type = "Cygwin")
@@ -527,6 +497,16 @@ let simplif_prim fpc p (args, approxs as args_approxs) dbg =
 let approx_ulam = function
     Uconst c -> Value_const c
   | _ -> Value_unknown
+
+let find_action idxs acts tag =
+  if 0 <= tag && tag < Array.length idxs then begin
+    let idx = idxs.(tag) in
+    assert(0 <= idx && idx < Array.length acts);
+    Some acts.(idx)
+  end else
+    (* Can this happen? *)
+    None
+
 
 let rec substitute fpc sb ulam =
   match ulam with
@@ -572,13 +552,32 @@ let rec substitute fpc sb ulam =
         simplif_prim fpc p (sargs, List.map approx_ulam sargs) dbg in
       res
   | Uswitch(arg, sw) ->
-      Uswitch(substitute fpc sb arg,
-              { sw with
-                us_actions_consts =
-                  Array.map (substitute fpc sb) sw.us_actions_consts;
-                us_actions_blocks =
-                  Array.map (substitute fpc sb) sw.us_actions_blocks;
-               })
+      let sarg = substitute fpc sb arg in
+      let action =
+        (* Unfortunately, we cannot easily deal with the
+           case of a constructed block (makeblock) bound to a local
+           identifier.  This would require to keep track of
+           local let bindings (at least their approximations)
+           in this substitute function.
+        *)
+        match sarg with
+        | Uconst (Uconst_ref (_,  Some (Uconst_block (tag, _)))) ->
+            find_action sw.us_index_blocks sw.us_actions_blocks tag
+        | Uconst (Uconst_ptr tag) ->
+            find_action sw.us_index_consts sw.us_actions_consts tag
+        | _ -> None
+      in
+      begin match action with
+      | Some u -> substitute fpc sb u
+      | None ->
+          Uswitch(sarg,
+                  { sw with
+                    us_actions_consts =
+                      Array.map (substitute fpc sb) sw.us_actions_consts;
+                    us_actions_blocks =
+                      Array.map (substitute fpc sb) sw.us_actions_blocks;
+                  })
+      end
   | Ustringswitch(arg,sw,d) ->
       Ustringswitch
         (substitute fpc sb arg,
@@ -587,7 +586,13 @@ let rec substitute fpc sb ulam =
   | Ustaticfail (nfail, args) ->
       Ustaticfail (nfail, List.map (substitute fpc sb) args)
   | Ucatch(nfail, ids, u1, u2) ->
-      Ucatch(nfail, ids, substitute fpc sb u1, substitute fpc sb u2)
+      let ids' = List.map Ident.rename ids in
+      let sb' =
+        List.fold_right2
+          (fun id id' s -> Tbl.add id (Uvar id') s)
+          ids ids' sb
+      in
+      Ucatch(nfail, ids', substitute fpc sb u1, substitute fpc sb' u2)
   | Utrywith(u1, id, u2) ->
       let id' = Ident.rename id in
       Utrywith(substitute fpc sb u1, id',
@@ -619,6 +624,8 @@ let rec substitute fpc sb ulam =
   | Usend(k, u1, u2, ul, dbg) ->
       Usend(k, substitute fpc sb u1, substitute fpc sb u2,
             List.map (substitute fpc sb) ul, dbg)
+  | Uunreachable ->
+      Uunreachable
 
 (* Perform an inline expansion *)
 
@@ -671,17 +678,24 @@ let rec is_pure = function
   | Levent(lam, ev) -> is_pure lam
   | _ -> false
 
+let warning_if_forced_inline ~loc ~attribute warning =
+  if attribute = Always_inline then
+    Location.prerr_warning loc (Warnings.Inlining_impossible warning)
+
 (* Generate a direct application *)
 
-let direct_apply fundesc funct ufunct uargs =
+let direct_apply fundesc funct ufunct uargs ~loc ~attribute =
   let app_args =
     if fundesc.fun_closed then uargs else uargs @ [ufunct] in
   let app =
-    match fundesc.fun_inline with
-    | None ->
+    match fundesc.fun_inline, attribute with
+    | _, Never_inline | None, _ ->
+        warning_if_forced_inline ~loc ~attribute
+          "Function information unavailable";
         Udirect_apply(fundesc.fun_label, app_args, Debuginfo.none)
-    | Some(params, body) ->
-        bind_params fundesc.fun_float_const_prop params app_args body in
+    | Some(params, body), _  ->
+        bind_params fundesc.fun_float_const_prop params app_args body
+  in
   (* If ufunct can contain side-effects or function definitions,
      we must make sure that it is evaluated exactly once.
      If the function is not closed, we evaluate ufunct as part of the
@@ -786,7 +800,7 @@ let rec close fenv cenv = function
         let name =
           Compilenv.new_structured_constant cst ~shared
         in
-        Uconst_ref (name, cst)
+        Uconst_ref (name, Some cst)
       in
       let rec transl = function
         | Const_base(Const_int n) -> Uconst_int n
@@ -809,22 +823,23 @@ let rec close fenv cenv = function
         | Const_base(Const_nativeint x) -> str (Uconst_nativeint x)
       in
       make_const (transl cst)
-  | Lfunction(kind, params, body) as funct ->
+  | Lfunction{kind; params; body} as funct ->
       close_one_function fenv cenv (Ident.create "fun") funct
 
     (* We convert [f a] to [let a' = a in fun b c -> f a' b c]
        when fun_arity > nargs *)
-  | Lapply(funct, args, loc) ->
+  | Lapply{ap_func = funct; ap_args = args; ap_loc = loc;
+        ap_inlined = attribute} ->
       let nargs = List.length args in
       begin match (close fenv cenv funct, close_list fenv cenv args) with
         ((ufunct, Value_closure(fundesc, approx_res)),
          [Uprim(Pmakeblock(_, _, _), uargs, _)])
         when List.length uargs = - fundesc.fun_arity ->
-          let app = direct_apply fundesc funct ufunct uargs in
+          let app = direct_apply ~loc ~attribute fundesc funct ufunct uargs in
           (app, strengthen_approx app approx_res)
       | ((ufunct, Value_closure(fundesc, approx_res)), uargs)
         when nargs = fundesc.fun_arity ->
-          let app = direct_apply fundesc funct ufunct uargs in
+          let app = direct_apply ~loc ~attribute fundesc funct ufunct uargs in
           (app, strengthen_approx app approx_res)
 
       | ((ufunct, Value_closure(fundesc, approx_res)), uargs)
@@ -846,19 +861,30 @@ let rec close fenv cenv = function
           @ (List.map (fun arg -> Lvar arg ) final_args)
         in
         let (new_fun, approx) = close fenv cenv
-          (Lfunction(
-            Curried, final_args, Lapply(funct, internal_args, loc)))
+          (Lfunction{
+               kind = Curried;
+               params = final_args;
+               body = Lapply{ap_should_be_tailcall=false;
+                             ap_loc=loc;
+                             ap_func=funct;
+                             ap_args=internal_args;
+                             ap_inlined=Default_inline;
+                             ap_specialised=Default_specialise};
+               attr = default_function_attribute})
         in
         let new_fun = iter first_args new_fun in
+        warning_if_forced_inline ~loc ~attribute "Partial application";
         (new_fun, approx)
 
       | ((ufunct, Value_closure(fundesc, approx_res)), uargs)
         when fundesc.fun_arity > 0 && nargs > fundesc.fun_arity ->
           let (first_args, rem_args) = split_list fundesc.fun_arity uargs in
-          (Ugeneric_apply(direct_apply fundesc funct ufunct first_args,
-                          rem_args, Debuginfo.none),
+          warning_if_forced_inline ~loc ~attribute "Over-application";
+          (Ugeneric_apply(direct_apply ~loc ~attribute fundesc funct ufunct
+                          first_args, rem_args, Debuginfo.none),
            Value_unknown)
       | ((ufunct, _), uargs) ->
+          warning_if_forced_inline ~loc ~attribute "Unknown function";
           (Ugeneric_apply(ufunct, uargs, Debuginfo.none), Value_unknown)
       end
   | Lsend(kind, met, obj, args, _) ->
@@ -881,7 +907,7 @@ let rec close fenv cenv = function
       end
   | Lletrec(defs, body) ->
       if List.for_all
-           (function (id, Lfunction(_, _, _)) -> true | _ -> false)
+           (function (id, Lfunction _) -> true | _ -> false)
            defs
       then begin
         (* Simple case: only function definitions *)
@@ -913,7 +939,12 @@ let rec close fenv cenv = function
       end
   | Lprim(Pdirapply loc,[funct;arg])
   | Lprim(Prevapply loc,[arg;funct]) ->
-      close fenv cenv (Lapply(funct, [arg], loc))
+      close fenv cenv (Lapply{ap_should_be_tailcall=false;
+                              ap_loc=loc;
+                              ap_func=funct;
+                              ap_args=[arg];
+                              ap_inlined=Default_inline;
+                              ap_specialised=Default_specialise})
   | Lprim(Pgetglobal id, []) as lam ->
       check_constant_result lam
                             (getglobal id)
@@ -922,11 +953,11 @@ let rec close fenv cenv = function
       let (ulam, approx) = close fenv cenv lam in
       check_constant_result lam (Uprim(Pfield n, [ulam], Debuginfo.none))
                             (field_approx n approx)
-  | Lprim(Psetfield(n, _), [Lprim(Pgetglobal id, []); lam]) ->
+  | Lprim(Psetfield(n, is_ptr, init), [Lprim(Pgetglobal id, []); lam]) ->
       let (ulam, approx) = close fenv cenv lam in
       if approx <> Value_unknown then
         (!global_approx).(n) <- approx;
-      (Uprim(Psetfield(n, false), [getglobal id; ulam], Debuginfo.none),
+      (Uprim(Psetfield(n, is_ptr, init), [getglobal id; ulam], Debuginfo.none),
        Value_unknown)
   | Lprim(Praise k, [Levent(arg, ev)]) ->
       let (ulam, approx) = close fenv cenv arg in
@@ -1035,7 +1066,7 @@ and close_list_approx fenv cenv = function
       (ulam :: ulams, approx :: approxs)
 
 and close_named fenv cenv id = function
-    Lfunction(kind, params, body) as funct ->
+    Lfunction{kind; params; body} as funct ->
       close_one_function fenv cenv id funct
   | lam ->
       close fenv cenv lam
@@ -1047,11 +1078,15 @@ and close_functions fenv cenv fun_defs =
     List.flatten
       (List.map
          (function
-           | (id, Lfunction(kind, params, body)) ->
-               split_default_wrapper id kind params body
+           | (id, Lfunction{kind; params; body; attr}) ->
+               Simplif.split_default_wrapper id kind params body attr
            | _ -> assert false
          )
          fun_defs)
+  in
+  let inline_attribute = match fun_defs with
+    | [_, Lfunction{kind; params; body; attr = { inline }}] -> inline
+    | _ -> Default_inline (* recursive functions can't be inlined *)
   in
 
   (* Update and check nesting depth *)
@@ -1067,7 +1102,7 @@ and close_functions fenv cenv fun_defs =
   let uncurried_defs =
     List.map
       (function
-          (id, Lfunction(kind, params, body)) ->
+          (id, Lfunction{kind; params; body}) ->
             let label = Compilenv.make_symbol (Some (Ident.unique_name id)) in
             let arity = List.length params in
             let fundesc =
@@ -1131,8 +1166,19 @@ and close_functions fenv cenv fun_defs =
         0
         fun_params
     in
-    if lambda_smaller ubody
-        (!Clflags.inline_threshold + n)
+    let threshold =
+      match inline_attribute with
+      | Default_inline ->
+          let inline_threshold =
+            Clflags.Float_arg_helper.get ~key:0 !Clflags.inline_threshold
+          in
+          let magic_scale_constant = 8. in
+          int_of_float (inline_threshold *. magic_scale_constant) + n
+      | Always_inline -> max_int
+      | Never_inline -> min_int
+      | Unroll _ -> assert false
+    in
+    if lambda_smaller ubody threshold
     then fundesc.fun_inline <- Some(fun_params, ubody);
 
     (f, (id, env_pos, Value_closure(fundesc, approx))) in
@@ -1238,15 +1284,17 @@ let collect_exported_structured_constants a =
     | Value_const c -> const c
     | Value_unknown | Value_global_field _ -> ()
   and const = function
-    | Uconst_ref (s, c) ->
+    | Uconst_ref (s, (Some c)) ->
         Compilenv.add_exported_constant s;
         structured_constant c
+    | Uconst_ref (s, None) -> assert false (* Cannot be generated *)
     | Uconst_int _ | Uconst_ptr _ -> ()
   and structured_constant = function
     | Uconst_block (_, ul) -> List.iter const ul
     | Uconst_float _ | Uconst_int32 _
     | Uconst_int64 _ | Uconst_nativeint _
     | Uconst_float_array _ | Uconst_string _ -> ()
+    | Uconst_closure _ -> assert false (* Cannot be generated *)
   and ulam = function
     | Uvar _ -> ()
     | Uconst c -> const c
@@ -1276,6 +1324,7 @@ let collect_exported_structured_constants a =
     | Ufor (_, u1, u2, _, u3) -> ulam u1; ulam u2; ulam u3
     | Uassign (_, u) -> ulam u
     | Usend (_, u1, u2, ul, _) -> ulam u1; ulam u2; List.iter ulam ul
+    | Uunreachable -> ()
   in
   approx a
 
@@ -1291,7 +1340,11 @@ let intro size lam =
   global_approx := Array.init size (fun i -> Value_global_field (id, i));
   Compilenv.set_global_approx(Value_tuple !global_approx);
   let (ulam, approx) = close Tbl.empty Tbl.empty lam in
-  if !Clflags.opaque
+  let opaque =
+    !Clflags.opaque
+    || Env.is_imported_opaque (Compilenv.current_unit_name ())
+  in
+  if opaque
   then Compilenv.set_global_approx(Value_unknown)
   else collect_exported_structured_constants (Value_tuple !global_approx);
   global_approx := [||];

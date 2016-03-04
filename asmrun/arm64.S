@@ -1,15 +1,17 @@
-/***********************************************************************/
-/*                                                                     */
-/*                                OCaml                                */
-/*                                                                     */
-/*            Xavier Leroy, projet Gallium, INRIA Rocquencourt         */
-/*                                                                     */
-/*  Copyright 2013 Institut National de Recherche en Informatique et   */
-/*  en Automatique.  All rights reserved.  This file is distributed    */
-/*  under the terms of the GNU Library General Public License, with    */
-/*  the special exception on linking described in file ../LICENSE.     */
-/*                                                                     */
-/***********************************************************************/
+/**************************************************************************/
+/*                                                                        */
+/*                                 OCaml                                  */
+/*                                                                        */
+/*             Xavier Leroy, projet Gallium, INRIA Rocquencourt           */
+/*                                                                        */
+/*   Copyright 2013 Institut National de Recherche en Informatique et     */
+/*     en Automatique.                                                    */
+/*                                                                        */
+/*   All rights reserved.  This file is distributed under the terms of    */
+/*   the GNU Lesser General Public License version 2.1, with the          */
+/*   special exception on linking described in the file LICENSE.          */
+/*                                                                        */
+/**************************************************************************/
 
 /* Asm part of the runtime system, ARM processor, 64-bit mode */
 /* Must be preprocessed by cpp */
@@ -175,11 +177,12 @@ caml_alloc1:
         ret
 2:      stp     x29, x30, [sp, -16]!
         CFI_ADJUST(16)
-    /* Record the lowest address of the caller's stack frame.  This is the address
-       immediately above the pair of words (x29 and x30) we just pushed.  Those must
-       not be included since otherwise the distance from [caml_bottom_of_stack] to the
-       highest address in the caller's stack frame won't match the frame size contained
-       in the relevant frame descriptor. */
+    /* Record the lowest address of the caller's stack frame.  This is the
+       address immediately above the pair of words (x29 and x30) we just
+       pushed.  Those must not be included since otherwise the distance from
+       [caml_bottom_of_stack] to the highest address in the caller's stack
+       frame won't match the frame size contained in the relevant frame
+       descriptor. */
         add     x29, sp, #16
         STOREGLOBAL(x29, caml_bottom_of_stack)
         add     x29, sp, #0
@@ -207,7 +210,8 @@ caml_alloc2:
         ret
 2:      stp     x29, x30, [sp, -16]!
         CFI_ADJUST(16)
-    /* Record the lowest address of the caller's stack frame.  See comment above. */
+    /* Record the lowest address of the caller's stack frame.
+       See comment above. */
         add     x29, sp, #16
         STOREGLOBAL(x29, caml_bottom_of_stack)
         add     x29, sp, #0
@@ -235,7 +239,8 @@ caml_alloc3:
         ret
 2:      stp     x29, x30, [sp, -16]!
         CFI_ADJUST(16)
-    /* Record the lowest address of the caller's stack frame.  See comment above. */
+    /* Record the lowest address of the caller's stack frame.
+       See comment above. */
         add     x29, sp, #16
         STOREGLOBAL(x29, caml_bottom_of_stack)
         add     x29, sp, #0
@@ -263,7 +268,8 @@ caml_allocN:
         ret
 2:      stp     x29, x30, [sp, -16]!
         CFI_ADJUST(16)
-    /* Record the lowest address of the caller's stack frame.  See comment above. */
+    /* Record the lowest address of the caller's stack frame.
+       See comment above. */
         add     x29, sp, #16
         STOREGLOBAL(x29, caml_bottom_of_stack)
         add     x29, sp, #0
@@ -549,3 +555,6 @@ caml_system__frametable:
         .align  3
         .type   caml_system__frametable, %object
         .size   caml_system__frametable, .-caml_system__frametable
+
+/* Mark stack as non-executable */
+        .section .note.GNU-stack,"",%progbits

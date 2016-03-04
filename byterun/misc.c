@@ -1,15 +1,17 @@
-/***********************************************************************/
-/*                                                                     */
-/*                                OCaml                                */
-/*                                                                     */
-/*         Xavier Leroy and Damien Doligez, INRIA Rocquencourt         */
-/*                                                                     */
-/*  Copyright 1996 Institut National de Recherche en Informatique et   */
-/*  en Automatique.  All rights reserved.  This file is distributed    */
-/*  under the terms of the GNU Library General Public License, with    */
-/*  the special exception on linking described in file ../LICENSE.     */
-/*                                                                     */
-/***********************************************************************/
+/**************************************************************************/
+/*                                                                        */
+/*                                 OCaml                                  */
+/*                                                                        */
+/*          Xavier Leroy and Damien Doligez, INRIA Rocquencourt           */
+/*                                                                        */
+/*   Copyright 1996 Institut National de Recherche en Informatique et     */
+/*     en Automatique.                                                    */
+/*                                                                        */
+/*   All rights reserved.  This file is distributed under the terms of    */
+/*   the GNU Lesser General Public License version 2.1, with the          */
+/*   special exception on linking described in the file LICENSE.          */
+/*                                                                        */
+/**************************************************************************/
 
 #include <stdio.h>
 #include <string.h>
@@ -17,6 +19,7 @@
 #include "caml/config.h"
 #include "caml/misc.h"
 #include "caml/memory.h"
+#include "caml/version.h"
 
 caml_timing_hook caml_major_slice_begin_hook = NULL;
 caml_timing_hook caml_major_slice_end_hook = NULL;
@@ -33,14 +36,13 @@ int caml_failed_assert (char * expr, char * file, int line)
            file, line, expr);
   fflush (stderr);
   exit (100);
-  return 1; /* not reached */
 }
 
-void caml_set_fields (char *bp, unsigned long start, unsigned long filler)
+void caml_set_fields (value v, unsigned long start, unsigned long filler)
 {
   mlsize_t i;
-  for (i = start; i < Wosize_bp (bp); i++){
-    Field (Val_bp (bp), i) = (value) filler;
+  for (i = start; i < Wosize_val (v); i++){
+    Field (v, i) = (value) filler;
   }
 }
 
@@ -50,7 +52,7 @@ uintnat caml_verb_gc = 0;
 
 void caml_gc_message (int level, char *msg, uintnat arg)
 {
-  if (level < 0 || (caml_verb_gc & level) != 0){
+  if ((caml_verb_gc & level) != 0){
     fprintf (stderr, msg, arg);
     fflush (stderr);
   }
@@ -76,6 +78,7 @@ CAMLexport void caml_fatal_error_arg2 (char *fmt1, char *arg1,
   exit(2);
 }
 
+/* [size] and [modulo] are numbers of bytes */
 char *caml_aligned_malloc (asize_t size, int modulo, void **block)
 {
   char *raw_mem;
@@ -123,6 +126,19 @@ int caml_ext_table_add(struct ext_table * tbl, void * data)
   return res;
 }
 
+void caml_ext_table_remove(struct ext_table * tbl, void * data)
+{
+  int i;
+  for (i = 0; i < tbl->size; i++) {
+    if (tbl->contents[i] == data) {
+      caml_stat_free(tbl->contents[i]);
+      memmove(&tbl->contents[i], &tbl->contents[i + 1],
+              (tbl->size - i - 1) * sizeof(void *));
+      tbl->size--;
+    }
+  }
+}
+
 void caml_ext_table_free(struct ext_table * tbl, int free_entries)
 {
   int i;
@@ -166,3 +182,97 @@ CAMLexport char * caml_strconcat(int n, ...)
   *p = 0;
   return res;
 }
+
+/* Runtime warnings */
+
+uintnat caml_runtime_warnings = 0;
+static int caml_runtime_warnings_first = 1;
+
+int caml_runtime_warnings_active(void)
+{
+  if (!caml_runtime_warnings) return 0;
+  if (caml_runtime_warnings_first) {
+    fprintf(stderr, "[ocaml] (use Sys.enable_runtime_warnings to control "
+                    "these warnings)\n");
+    caml_runtime_warnings_first = 0;
+  }
+  return 1;
+}
+
+#ifdef CAML_INSTR
+/* Timers for profiling GC and allocation (experimental, Linux-only) */
+
+#include <limits.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+struct CAML_INSTR_BLOCK *CAML_INSTR_LOG = NULL;
+intnat CAML_INSTR_STARTTIME, CAML_INSTR_STOPTIME;
+
+#define Get_time(p,i) ((p)->ts[(i)].tv_nsec + 1000000000 * (p)->ts[(i)].tv_sec)
+
+void CAML_INSTR_INIT (void)
+{
+  char *s;
+
+  CAML_INSTR_STARTTIME = 0;
+  s = getenv ("OCAML_INSTR_START");
+  if (s != NULL) CAML_INSTR_STARTTIME = atol (s);
+  CAML_INSTR_STOPTIME = LONG_MAX;
+  s = getenv ("OCAML_INSTR_STOP");
+  if (s != NULL) CAML_INSTR_STOPTIME = atol (s);
+}
+
+void CAML_INSTR_ATEXIT (void)
+{
+  int i;
+  struct CAML_INSTR_BLOCK *p, *prev, *next;
+  FILE *f = NULL;
+  char *fname;
+
+  fname = getenv ("OCAML_INSTR_FILE");
+  if (fname != NULL){
+    char *mode = "a";
+    char buf [1000];
+    char *name = fname;
+
+    if (name[0] == '@'){
+      snprintf (buf, sizeof(buf), "%s.%d", name + 1, getpid ());
+      name = buf;
+    }
+    if (name[0] == '+'){
+      mode = "a";
+      name = name + 1;
+    }else if (name [0] == '>' || name[0] == '-'){
+      mode = "w";
+      name = name + 1;
+    }
+    f = fopen (name, mode);
+  }
+
+  if (f != NULL){
+    /* reverse the list */
+    prev = NULL;
+    p = CAML_INSTR_LOG;
+    while (p != NULL){
+      next = p->next;
+      p->next = prev;
+      prev = p;
+      p = next;
+    }
+    CAML_INSTR_LOG = prev;
+    fprintf (f, "==== OCAML INSTRUMENTATION DATA %s\n", OCAML_VERSION_STRING);
+    for (p = CAML_INSTR_LOG; p != NULL; p = p->next){
+      for (i = 0; i < p->index; i++){
+        fprintf (f, "@@ %19ld %19ld %s\n",
+                 Get_time (p, i), Get_time(p, i+1), p->tag[i+1]);
+      }
+      if (p->tag[0][0] != '\000'){
+        fprintf (f, "@@ %19ld %19ld %s\n",
+                 Get_time (p, 0), Get_time(p, p->index), p->tag[0]);
+      }
+    }
+    fclose (f);
+  }
+}
+#endif /* CAML_INSTR */

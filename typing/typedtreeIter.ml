@@ -1,12 +1,15 @@
 (**************************************************************************)
 (*                                                                        *)
-(*                                OCaml                                   *)
+(*                                 OCaml                                  *)
 (*                                                                        *)
 (*    Thomas Gazagnaire (OCamlPro), Fabrice Le Fessant (INRIA Saclay)     *)
 (*                                                                        *)
 (*   Copyright 2007 Institut National de Recherche en Informatique et     *)
-(*   en Automatique.  All rights reserved.  This file is distributed      *)
-(*   under the terms of the Q Public License version 1.0.                 *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
 (*                                                                        *)
 (**************************************************************************)
 
@@ -136,7 +139,7 @@ module MakeIterator(Iter : IteratorArgument) : sig
         | Tstr_value (rec_flag, list) ->
             iter_bindings rec_flag list
         | Tstr_primitive vd -> iter_value_description vd
-        | Tstr_type list -> iter_type_declarations list
+        | Tstr_type (rf, list) -> iter_type_declarations rf list
         | Tstr_typext tyext -> iter_type_extension tyext
         | Tstr_exception ext -> iter_extension_constructor ext
         | Tstr_module x -> iter_module_binding x
@@ -144,7 +147,7 @@ module MakeIterator(Iter : IteratorArgument) : sig
         | Tstr_modtype mtd -> iter_module_type_declaration mtd
         | Tstr_open _ -> ()
         | Tstr_class list ->
-            List.iter (fun (ci, _, _) -> iter_class_declaration ci) list
+            List.iter (fun (ci, _) -> iter_class_declaration ci) list
         | Tstr_class_type list ->
             List.iter
               (fun (id, _, ct) -> iter_class_type_declaration ct)
@@ -163,8 +166,12 @@ module MakeIterator(Iter : IteratorArgument) : sig
       iter_core_type v.val_desc;
       Iter.leave_value_description v
 
+    and iter_constructor_arguments = function
+      | Cstr_tuple l -> List.iter iter_core_type l
+      | Cstr_record l -> List.iter (fun ld -> iter_core_type ld.ld_type) l
+
     and iter_constructor_declaration cd =
-      List.iter iter_core_type cd.cd_args;
+      iter_constructor_arguments cd.cd_args;
       option iter_core_type cd.cd_res;
 
     and iter_type_parameter (ct, v) =
@@ -191,17 +198,7 @@ module MakeIterator(Iter : IteratorArgument) : sig
       option iter_core_type decl.typ_manifest;
       Iter.leave_type_declaration decl
 
-    and iter_type_declarations decls =
-      let rec_flag =
-        let is_nonrec =
-          List.exists
-            (fun td ->
-               List.exists (fun (n, _) -> n.txt = "nonrec")
-                 td.typ_attributes)
-            decls
-        in
-        if is_nonrec then Nonrecursive else Recursive
-      in
+    and iter_type_declarations rec_flag decls =
       Iter.enter_type_declarations rec_flag;
       List.iter iter_type_declaration decls;
       Iter.leave_type_declarations rec_flag
@@ -210,7 +207,7 @@ module MakeIterator(Iter : IteratorArgument) : sig
       Iter.enter_extension_constructor ext;
       begin match ext.ext_kind with
           Text_decl(args, ret) ->
-            List.iter iter_core_type args;
+          iter_constructor_arguments args;
             option iter_core_type ret
         | Text_rebind _ -> ()
       end;
@@ -276,7 +273,7 @@ module MakeIterator(Iter : IteratorArgument) : sig
             iter_cases cases
         | Texp_apply (exp, list) ->
             iter_expression exp;
-            List.iter (fun (label, expo, _) ->
+            List.iter (fun (label, expo) ->
                 match expo with
                   None -> ()
                 | Some exp -> iter_expression exp
@@ -351,6 +348,10 @@ module MakeIterator(Iter : IteratorArgument) : sig
             iter_class_structure cl
         | Texp_pack (mexpr) ->
             iter_module_expr mexpr
+        | Texp_unreachable ->
+            ()
+        | Texp_extension_constructor _ ->
+            ()
       end;
       Iter.leave_expression exp;
 
@@ -370,8 +371,8 @@ module MakeIterator(Iter : IteratorArgument) : sig
         match item.sig_desc with
           Tsig_value vd ->
             iter_value_description vd
-        | Tsig_type list ->
-            iter_type_declarations list
+        | Tsig_type (rf, list) ->
+            iter_type_declarations rf list
         | Tsig_exception ext ->
             iter_extension_constructor ext
         | Tsig_typext tyext ->
@@ -486,7 +487,7 @@ module MakeIterator(Iter : IteratorArgument) : sig
 
         | Tcl_apply (cl, args) ->
             iter_class_expr cl;
-            List.iter (fun (label, expo, _) ->
+            List.iter (fun (label, expo) ->
                 match expo with
                   None -> ()
                 | Some exp -> iter_expression exp
@@ -627,7 +628,6 @@ module DefaultIteratorArgument = struct
       let enter_class_type _ = ()
       let enter_class_type_field _ = ()
       let enter_core_type _ = ()
-      let enter_core_field_type _ = ()
       let enter_class_structure _ = ()
     let enter_class_field _ = ()
     let enter_structure_item _ = ()
@@ -654,7 +654,6 @@ module DefaultIteratorArgument = struct
       let leave_class_type _ = ()
       let leave_class_type_field _ = ()
       let leave_core_type _ = ()
-      let leave_core_field_type _ = ()
       let leave_class_structure _ = ()
     let leave_class_field _ = ()
     let leave_structure_item _ = ()

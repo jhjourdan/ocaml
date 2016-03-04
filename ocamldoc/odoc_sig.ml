@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                             OCamldoc                                *)
-(*                                                                     *)
-(*            Maxence Guesdon, projet Cristal, INRIA Rocquencourt      *)
-(*                                                                     *)
-(*  Copyright 2001 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Maxence Guesdon, projet Cristal, INRIA Rocquencourt        *)
+(*                                                                        *)
+(*   Copyright 2001 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (** Analysis of interface files. *)
 
@@ -136,8 +139,7 @@ module Analyser =
        prepare_file must have been called to fill the file global variable.*)
     let get_string_of_file the_start the_end =
       try
-        let s = String.sub !file the_start (the_end-the_start) in
-        s
+        String.sub !file the_start (the_end-the_start)
       with
         Invalid_argument _ ->
           ""
@@ -220,6 +222,7 @@ module Analyser =
                 let (len, comment_opt) =  My_ir.just_after_special !file_name s in
                 (len, acc @ [ (pcd.pcd_name.txt, comment_opt) ])
             | pcd :: (pcd2 :: _ as q) ->
+                (* TODO: support annotations on fields for inline records *)
                 let pos_end_first = pcd.pcd_loc.Location.loc_end.Lexing.pos_cnum in
                 let pos_start_second = pcd2.pcd_loc.Location.loc_start.Lexing.pos_cnum in
                 let s = get_string_of_file pos_end_first pos_start_second in
@@ -266,20 +269,40 @@ module Analyser =
         Object_type (List.map f @@ fst @@ Ctype.flatten_fields fields)
       | _ -> Other (Odoc_env.subst_type env type_expr)
 
+    let get_field env name_comment_list {Types.ld_id=field_name;ld_mutable=mutable_flag;ld_type=type_expr} =
+      let field_name = Ident.name field_name in
+      let comment_opt =
+        try List.assoc field_name name_comment_list
+        with Not_found -> None
+      in
+      {
+        rf_name = field_name ;
+        rf_mutable = mutable_flag = Mutable ;
+        rf_type = Odoc_env.subst_type env type_expr ;
+        rf_text = comment_opt
+      }
+
     let get_type_kind env name_comment_list type_kind =
       match type_kind with
         Types.Type_abstract ->
           Odoc_type.Type_abstract
       | Types.Type_variant l ->
-          let f {Types.cd_id=constructor_name;cd_args=type_expr_list;cd_res=ret_type} =
+          let f {Types.cd_id=constructor_name;cd_args;cd_res=ret_type} =
             let constructor_name = Ident.name constructor_name in
             let comment_opt =
-              try List.assoc constructor_name name_comment_list
+              try match List.assoc constructor_name name_comment_list with
+                | Some { i_desc = None | Some []; _ } -> None
+                | x -> x
               with Not_found -> None
+            in
+            let vc_args =
+              match cd_args with
+              | Cstr_tuple l -> Cstr_tuple (List.map (Odoc_env.subst_type env) l)
+              | Cstr_record l -> Cstr_record (List.map (get_field env []) l)
             in
             {
               vc_name = constructor_name ;
-              vc_args = List.map (Odoc_env.subst_type env) type_expr_list ;
+              vc_args;
               vc_ret =  may_map (Odoc_env.subst_type env) ret_type;
               vc_text = comment_opt
             }
@@ -287,20 +310,7 @@ module Analyser =
           Odoc_type.Type_variant (List.map f l)
 
       | Types.Type_record (l, _) ->
-          let f {Types.ld_id=field_name;ld_mutable=mutable_flag;ld_type=type_expr} =
-            let field_name = Ident.name field_name in
-            let comment_opt =
-              try List.assoc field_name name_comment_list
-              with Not_found -> None
-            in
-            {
-              rf_name = field_name ;
-              rf_mutable = mutable_flag = Mutable ;
-              rf_type = Odoc_env.subst_type env type_expr ;
-              rf_text = comment_opt
-            }
-          in
-          Odoc_type.Type_record (List.map f l)
+          Odoc_type.Type_record (List.map (get_field env name_comment_list) l)
 
       | Types.Type_open ->
           Odoc_type.Type_open
@@ -329,10 +339,10 @@ module Analyser =
         | Parsetree.Psig_include _
         | Parsetree.Psig_class _
         | Parsetree.Psig_class_type _ as tp -> take_item tp
-        | Parsetree.Psig_type types ->
+        | Parsetree.Psig_type (rf, types) ->
           (match List.filter (fun td -> not (Name.Set.mem td.Parsetree.ptype_name.txt erased)) types with
           | [] -> acc
-          | types -> take_item (Parsetree.Psig_type types))
+          | types -> take_item (Parsetree.Psig_type (rf, types)))
         | Parsetree.Psig_module {Parsetree.pmd_name=name}
         | Parsetree.Psig_modtype {Parsetree.pmtd_name=name} as m ->
           if Name.Set.mem name.txt erased then acc else take_item m
@@ -469,7 +479,7 @@ module Analyser =
 
         | (Parsetree.Pctf_constraint (_, _)) ->
             (* of (core_type * core_type) *)
-            (* A VOIR : cela correspond aux contraintes, non ? on ne les garde pas pour l'instant *)
+            (* FIXME: this corresponds to constraints, isn't it? We don't keep them for now *)
             let (comment_opt, eles_comments) = get_comments_in_class last_pos loc.Location.loc_start.Lexing.pos_cnum in
             let (inher_l, eles) = f loc.Location.loc_end.Lexing.pos_cnum q in
             (inher_l, eles_comments @ eles)
@@ -493,14 +503,11 @@ module Analyser =
                 Parsetree.Pcty_constr (longident, _) ->
                   (*of Longident.t * core_type list*)
                   let name = Name.from_longident longident.txt in
-                  let ic =
-                    {
-                      ic_name = Odoc_env.full_class_or_class_type_name env name ;
-                      ic_class = None ;
-                      ic_text = text_opt ;
-                    }
-                  in
-                  ic
+                  {
+                    ic_name = Odoc_env.full_class_or_class_type_name env name ;
+                    ic_class = None ;
+                    ic_text = text_opt ;
+                  }
 
               | Parsetree.Pcty_signature _
               | Parsetree.Pcty_arrow _ ->
@@ -567,15 +574,10 @@ module Analyser =
                 ele.Parsetree.psig_desc
             in
             let new_pos =
-              match ele.Parsetree.psig_desc with
-              | Parsetree.Psig_attribute ({Asttypes.txt = "ocaml.text"}, _) -> last_pos
-                  (* This "signature item" is actually a doc comment; the item is ignored
-                     but don't skip the comment. *)
-              | _ ->
-                 (ele.Parsetree.psig_loc.Location.loc_end.Lexing.pos_cnum + maybe_more)
-                   (* for the comments of constructors in types,
-                      which are after the constructor definition and can
-                      go beyond ele.Parsetree.psig_loc.Location.loc_end.Lexing.pos_cnum *)
+              ele.Parsetree.psig_loc.Location.loc_end.Lexing.pos_cnum + maybe_more
+              (* for the comments of constructors in types,
+                 which are after the constructor definition and can
+                 go beyond ele.Parsetree.psig_loc.Location.loc_end.Lexing.pos_cnum *)
             in
             f (acc_eles @ (ele_comments @ elements))
               new_env
@@ -666,10 +668,15 @@ module Analyser =
               [] -> (maybe_more, List.rev exts_acc)
             | (name, types_ext) :: q ->
               let ext_loc_end =  types_ext.Types.ext_loc.Location.loc_end.Lexing.pos_cnum in
+              let xt_args =
+                match types_ext.ext_args with
+                | Cstr_tuple l -> Cstr_tuple (List.map (Odoc_env.subst_type new_env) l)
+                | Cstr_record l -> Cstr_record (List.map (get_field new_env []) l)
+              in
               let new_x =
                 {
                   xt_name = Name.concat current_module_name name ;
-                  xt_args = List.map (Odoc_env.subst_type new_env) types_ext.ext_args ;
+                  xt_args;
                   xt_ret = may_map (Odoc_env.subst_type new_env) types_ext.ext_ret_type ;
                   xt_type_extension = new_te;
                   xt_alias = None ;
@@ -704,11 +711,16 @@ module Analyser =
               with Not_found ->
                 raise (Failure (Odoc_messages.exception_not_found current_module_name name.txt))
             in
+            let ex_args =
+              match types_ext.ext_args with
+              | Cstr_tuple l -> Cstr_tuple (List.map (Odoc_env.subst_type env) l)
+              | Cstr_record l -> Cstr_record (List.map (get_field env []) l)
+            in
             let e =
               {
                 ex_name = Name.concat current_module_name name.txt ;
                 ex_info = comment_opt ;
-                ex_args = List.map (Odoc_env.subst_type env) types_ext.ext_args ;
+                ex_args;
                 ex_ret = may_map (Odoc_env.subst_type env) types_ext.ext_ret_type ;
                 ex_alias = None ;
                 ex_loc = { loc_impl = None ; loc_inter = Some sig_item_loc } ;
@@ -730,7 +742,7 @@ module Analyser =
             let new_env = Odoc_env.add_extension env e.ex_name in
             (maybe_more, new_env, [ Element_exception e ])
 
-        | Parsetree.Psig_type name_type_decl_list ->
+        | Parsetree.Psig_type (rf, name_type_decl_list) ->
             let extended_env =
               List.fold_left
                 (fun acc_env td ->
@@ -741,14 +753,9 @@ module Analyser =
                 name_type_decl_list
             in
             let env =
-              let is_nonrec =
-                List.exists
-                  (fun td ->
-                     List.exists (fun (n, _) -> n.txt = "nonrec")
-                       td.Parsetree.ptype_attributes)
-                  name_type_decl_list
-              in
-              if is_nonrec then env else extended_env
+              match rf with
+              | Recursive -> extended_env
+              | Nonrecursive -> env
             in
             let rec f ?(first=false) acc_maybe_more last_pos name_type_decl_list =
               match name_type_decl_list with
@@ -775,9 +782,23 @@ module Analyser =
                       pos_limit2
                       type_decl
                   in
-                  print_DEBUG ("Type "^name.txt^" : "^(match assoc_com with None -> "sans commentaire" | Some c -> Odoc_misc.string_of_info c));
-                  let f_DEBUG (name, c_opt) = print_DEBUG ("constructor/field "^name^": "^(match c_opt with None -> "sans commentaire" | Some c -> Odoc_misc.string_of_info c)) in
-                  List.iter f_DEBUG name_comment_list;
+(* DEBUG *)       begin
+(* DEBUG *)         let comm =
+(* DEBUG *)           match assoc_com with
+(* DEBUG *)           | None -> "sans commentaire"
+(* DEBUG *)           | Some c -> Odoc_misc.string_of_info c
+(* DEBUG *)         in
+(* DEBUG *)         print_DEBUG ("Type "^name.txt^" : "^comm);
+(* DEBUG *)         let f_DEBUG (name, c_opt) =
+(* DEBUG *)           let comm =
+(* DEBUG *)             match c_opt with
+(* DEBUG *)             | None -> "sans commentaire"
+(* DEBUG *)             | Some c -> Odoc_misc.string_of_info c
+(* DEBUG *)           in
+(* DEBUG *)           print_DEBUG ("constructor/field "^name^": "^comm)
+(* DEBUG *)         in
+(* DEBUG *)         List.iter f_DEBUG name_comment_list;
+(* DEBUG *)       end;
                   (* get the information for the type in the signature *)
                   let sig_type_decl =
                     try Signature_search.search_type table name.txt
@@ -833,7 +854,7 @@ module Analyser =
             let (maybe_more, types) = f ~first: true 0 pos_start_ele name_type_decl_list in
             (maybe_more, extended_env, types)
 
-        | Parsetree.Psig_open _ -> (* A VOIR *)
+        | Parsetree.Psig_open _ -> (* FIXME *)
             let ele_comments = match comment_opt with
               None -> []
             | Some i ->
@@ -884,7 +905,7 @@ module Analyser =
             new_module.m_info <- merge_infos new_module.m_info info_after_opt ;
             let new_env = Odoc_env.add_module env new_module.m_name in
             let new_env2 =
-              match new_module.m_type with (* A VOIR : cela peut-il etre Tmty_ident ? dans ce cas, on aurait pas la signature *)
+              match new_module.m_type with (* FIXME : can this be a Tmty_ident? in this case, we would'nt have the signature *)
                 Types.Mty_signature s -> Odoc_env.add_signature new_env new_module.m_name ~rel: (Name.simple new_module.m_name) s
               | _ -> new_env
             in
@@ -904,7 +925,7 @@ module Analyser =
                       raise (Failure (Odoc_messages.module_not_found current_module_name name))
                   in
                   match sig_module_type with
-                    (* A VOIR : cela peut-il etre Tmty_ident ? dans ce cas, on aurait pas la signature *)
+                    (* FIXME : can this be a Tmty_ident? in this case, we would'nt have the signature *)
                     Types.Mty_signature s ->
                       Odoc_env.add_signature e complete_name ~rel: name s
                   | _ ->
@@ -1019,7 +1040,7 @@ module Analyser =
             mt.mt_info <- merge_infos mt.mt_info info_after_opt ;
             let new_env = Odoc_env.add_module_type env mt.mt_name in
             let new_env2 =
-              match sig_mtype with (* A VOIR : cela peut-il etre Tmty_ident ? dans ce cas, on aurait pas la signature *)
+              match sig_mtype with (* FIXME : can this be a Tmty_ident? in this case, we would'nt have the signature *)
                 Some (Types.Mty_signature s) -> Odoc_env.add_signature new_env mt.mt_name ~rel: (Name.simple mt.mt_name) s
               | _ -> new_env
             in
@@ -1053,7 +1074,7 @@ module Analyser =
                 im_info = comment_opt;
               }
             in
-            (0, env, [ Element_included_module im ]) (* A VOIR : etendre l'environnement ? avec quoi ? *)
+            (0, env, [ Element_included_module im ]) (* FIXME : extend the environment? How? *)
 
         | Parsetree.Psig_class class_description_list ->
             (* we start by extending the environment *)
@@ -1216,7 +1237,7 @@ module Analyser =
             match sig_module_type with
               Types.Mty_ident path -> Name.from_path path
             | _ -> Name.from_longident longident.txt
-              (* A VOIR cela arrive quand on fait module type F : functor ... -> Toto, Toto n'est pas un ident mais une structure *)
+              (* FIXME this happens for module type F : functor ... -> Toto, Toto is not an ident but a structure *)
           in
           Module_type_alias { mta_name = Odoc_env.full_module_type_name env name ;
                               mta_module = None }
@@ -1423,8 +1444,8 @@ module Analyser =
           ([], Class_structure (inher_l, ele))
 
       | (Parsetree.Pcty_arrow (parse_label, _, pclass_type), Types.Cty_arrow (label, type_expr, class_type)) ->
-          (* label = string. Dans les signatures, pas de nom de parametres a l'interieur des tuples *)
-          (* si label = "", pas de label. ici on a l'information pour savoir si on a un label explicite. *)
+          (* label = string. In signature, there is no parameter names inside tuples *)
+          (* if label = "", no label . Here we have the information to determine if a label is explicit or not. *)
           if parse_label = label then
             (
              let new_param = Simple_name
@@ -1451,15 +1472,12 @@ module Analyser =
         (Parsetree.Pcty_constr (_, _) (*of Longident.t * core_type list *),
          Types.Cty_constr (p, typ_list, _) (*of Path.t * type_expr list * class_type*)) ->
           print_DEBUG "Cty_constr _";
-           let k =
-             Class_type
-               {
-                 cta_name = Odoc_env.full_class_or_class_type_name env (Name.from_path p) ;
-                 cta_class = None ;
-                 cta_type_parameters = List.map (Odoc_env.subst_type env) typ_list
-               }
-           in
-           k
+          Class_type
+            {
+              cta_name = Odoc_env.full_class_or_class_type_name env (Name.from_path p) ;
+              cta_class = None ;
+              cta_type_parameters = List.map (Odoc_env.subst_type env) typ_list
+            }
 
         | (Parsetree.Pcty_signature {
               Parsetree.pcsig_fields = class_type_field_list;
@@ -1478,7 +1496,7 @@ module Analyser =
 (*
       | (Parsetree.Pcty_constr (longident, _) (*of Longident.t * core_type list *),
          Types.Cty_signature class_signature) ->
-           (* A VOIR : c'est pour le cas des contraintes de classes :
+           (* FIXME : this for the case of class contraints :
               class type cons = object
                 method m : int
               end
@@ -1521,7 +1539,7 @@ module Analyser =
       in
       prepare_file complete_source_file input_file;
       (* We create the t_module for this file. *)
-      let mod_name = String.capitalize
+      let mod_name = String.capitalize_ascii
           (Filename.basename (try Filename.chop_extension source_file with _ -> source_file))
       in
       let (len,info_opt) = My_ir.first_special !file_name !file in

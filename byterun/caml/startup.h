@@ -1,15 +1,17 @@
-/***********************************************************************/
-/*                                                                     */
-/*                                OCaml                                */
-/*                                                                     */
-/*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         */
-/*                                                                     */
-/*  Copyright 2001 Institut National de Recherche en Informatique et   */
-/*  en Automatique.  All rights reserved.  This file is distributed    */
-/*  under the terms of the GNU Library General Public License, with    */
-/*  the special exception on linking described in file ../LICENSE.     */
-/*                                                                     */
-/***********************************************************************/
+/**************************************************************************/
+/*                                                                        */
+/*                                 OCaml                                  */
+/*                                                                        */
+/*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           */
+/*                                                                        */
+/*   Copyright 2001 Institut National de Recherche en Informatique et     */
+/*     en Automatique.                                                    */
+/*                                                                        */
+/*   All rights reserved.  This file is distributed under the terms of    */
+/*   the GNU Lesser General Public License version 2.1, with the          */
+/*   special exception on linking described in the file LICENSE.          */
+/*                                                                        */
+/**************************************************************************/
 
 #ifndef CAML_STARTUP_H
 #define CAML_STARTUP_H
@@ -30,9 +32,10 @@ enum { FILE_NOT_FOUND = -1, BAD_BYTECODE  = -2 };
 extern int caml_attempt_open(char **name, struct exec_trailer *trail,
                              int do_open_script);
 extern void caml_read_section_descriptors(int fd, struct exec_trailer *trail);
-extern int32 caml_seek_optional_section(int fd, struct exec_trailer *trail,
+extern int32_t caml_seek_optional_section(int fd, struct exec_trailer *trail,
                                         char *name);
-extern int32 caml_seek_section(int fd, struct exec_trailer *trail, char *name);
+extern int32_t caml_seek_section(int fd, struct exec_trailer *trail,
+                                 char *name);
 
 
 #endif /* CAML_STARTUP_H */

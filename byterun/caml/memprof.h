@@ -3,14 +3,14 @@
 
 #include "roots.h"
 
-extern void caml_memprof_minor_gc_update(char* old_young_ptr);
+extern void caml_memprof_minor_gc_update(value* old_young_ptr);
 extern void caml_memprof_major_gc_update(void);
 extern void caml_memprof_do_weak_roots(scanning_action f);
 extern void caml_memprof_do_strong_roots(scanning_action f);
 extern void caml_memprof_do_young_roots(scanning_action f);
 extern void caml_memprof_reinit(void);
 
-extern char* caml_memprof_young_limit;
+extern value* caml_memprof_young_limit;
 
 extern value caml_memprof_track_alloc_shr(value block);
 extern void caml_memprof_track_young(uintnat wosize);

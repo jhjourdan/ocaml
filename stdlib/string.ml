@@ -1,15 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*          Damien Doligez, projet Gallium, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 2014 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the GNU Library General Public License, with    *)
-(*  the special exception on linking described in file ../LICENSE.     *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*           Damien Doligez, projet Gallium, INRIA Rocquencourt           *)
+(*                                                                        *)
+(*   Copyright 2014 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (* String operations, based on byte sequence operations *)
 
@@ -20,9 +22,9 @@ external create : int -> bytes = "caml_create_string"
 external unsafe_get : string -> int -> char = "%string_unsafe_get"
 external unsafe_set : bytes -> int -> char -> unit = "%string_unsafe_set"
 external unsafe_blit : string -> int ->  bytes -> int -> int -> unit
-                     = "caml_blit_string" "noalloc"
+                     = "caml_blit_string" [@@noalloc]
 external unsafe_fill : bytes -> int -> int -> char -> unit
-                     = "caml_fill_string" "noalloc"
+                     = "caml_fill_string" [@@noalloc]
 
 module B = Bytes
 
@@ -73,8 +75,6 @@ let mapi f s =
    copy, but String.mli spells out some cases where we are not allowed
    to make a copy. *)
 
-external is_printable: char -> bool = "caml_is_printable"
-
 let is_space = function
   | ' ' | '\012' | '\n' | '\r' | '\t' -> true
   | _ -> false
@@ -89,8 +89,8 @@ let escaped s =
   let rec needs_escape i =
     if i >= length s then false else
       match unsafe_get s i with
-      | '"' | '\\' | '\n' | '\t' | '\r' | '\b' -> true
-      | c when is_printable c -> needs_escape (i+1)
+      | '\"' | '\\' | '\n' | '\t' | '\r' | '\b' -> true
+      | ' ' .. '~' -> needs_escape (i+1)
       | _ -> true
   in
   if needs_escape 0 then
@@ -112,6 +112,23 @@ let contains_from s i c =
   B.contains_from (bos s) i c
 let rcontains_from s i c =
   B.rcontains_from (bos s) i c
+
+let uppercase_ascii s =
+  B.uppercase_ascii (bos s) |> bts
+let lowercase_ascii s =
+  B.lowercase_ascii (bos s) |> bts
+let capitalize_ascii s =
+  B.capitalize_ascii (bos s) |> bts
+let uncapitalize_ascii s =
+  B.uncapitalize_ascii (bos s) |> bts
+
+type t = string
+
+let compare (x: t) (y: t) = Pervasives.compare x y
+external equal : string -> string -> bool = "caml_string_equal"
+
+(* Deprecated functions implemented via other deprecated functions *)
+[@@@ocaml.warning "-3"]
 let uppercase s =
   B.uppercase (bos s) |> bts
 let lowercase s =
@@ -120,7 +137,3 @@ let capitalize s =
   B.capitalize (bos s) |> bts
 let uncapitalize s =
   B.uncapitalize (bos s) |> bts
-
-type t = string
-
-let compare (x: t) (y: t) = Pervasives.compare x y

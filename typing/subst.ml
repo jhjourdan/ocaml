@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (* Substitutions *)
 
@@ -86,6 +89,13 @@ let type_path s = function
       Pdot(module_path s p, n, pos)
   | Papply(p1, p2) ->
       fatal_error "Subst.type_path"
+
+let type_path s p =
+  match Path.constructor_typath p with
+  | Regular p -> type_path s p
+  | Cstr (ty_path, cstr) -> Pdot(type_path s ty_path, cstr, nopos)
+  | LocalExt _ -> type_path s p
+  | Ext (p, cstr) -> Pdot(module_path s p, cstr, nopos)
 
 (* Special type ids for saved signatures *)
 
@@ -195,6 +205,30 @@ let type_expr s ty =
   cleanup_types ();
   ty'
 
+let label_declaration s l =
+  {
+    ld_id = l.ld_id;
+    ld_mutable = l.ld_mutable;
+    ld_type = typexp s l.ld_type;
+    ld_loc = loc s l.ld_loc;
+    ld_attributes = attrs s l.ld_attributes;
+  }
+
+let constructor_arguments s = function
+  | Cstr_tuple l ->
+      Cstr_tuple (List.map (typexp s) l)
+  | Cstr_record l ->
+      Cstr_record (List.map (label_declaration s) l)
+
+let constructor_declaration s c =
+  {
+    cd_id = c.cd_id;
+    cd_args = constructor_arguments s c.cd_args;
+    cd_res = may_map (typexp s) c.cd_res;
+    cd_loc = loc s c.cd_loc;
+    cd_attributes = attrs s c.cd_attributes;
+  }
+
 let type_declaration s decl =
   let decl =
     { type_params = List.map (typexp s) decl.type_params;
@@ -203,31 +237,9 @@ let type_declaration s decl =
         begin match decl.type_kind with
           Type_abstract -> Type_abstract
         | Type_variant cstrs ->
-            Type_variant
-              (List.map
-                 (fun c ->
-                    {
-                      cd_id = c.cd_id;
-                      cd_args = List.map (typexp s) c.cd_args;
-                      cd_res = may_map (typexp s) c.cd_res;
-                      cd_loc = loc s c.cd_loc;
-                      cd_attributes = attrs s c.cd_attributes;
-                    }
-                 )
-                 cstrs)
+            Type_variant (List.map (constructor_declaration s) cstrs)
         | Type_record(lbls, rep) ->
-            Type_record
-              (List.map (fun l ->
-                   {
-                     ld_id = l.ld_id;
-                     ld_mutable = l.ld_mutable;
-                     ld_type = typexp s l.ld_type;
-                     ld_loc = loc s l.ld_loc;
-                     ld_attributes = attrs s l.ld_attributes;
-                   }
-                 )
-                  lbls,
-               rep)
+            Type_record (List.map (label_declaration s) lbls, rep)
         | Type_open -> Type_open
         end;
       type_manifest =
@@ -241,6 +253,7 @@ let type_declaration s decl =
       type_newtype_level = None;
       type_loc = loc s decl.type_loc;
       type_attributes = attrs s decl.type_attributes;
+      type_immediate = decl.type_immediate;
     }
   in
   cleanup_types ();
@@ -314,7 +327,7 @@ let extension_constructor s ext =
   let ext =
     { ext_type_path = type_path s ext.ext_type_path;
       ext_type_params = List.map (typexp s) ext.ext_type_params;
-      ext_args = List.map (typexp s) ext.ext_args;
+      ext_args = constructor_arguments s ext.ext_args;
       ext_ret_type = may_map (typexp s) ext.ext_ret_type;
       ext_private = ext.ext_private;
       ext_attributes = attrs s ext.ext_attributes;
@@ -335,8 +348,11 @@ let rec rename_bound_idents s idents = function
       let id' = Ident.rename id in
       rename_bound_idents (add_modtype id (Mty_ident(Pident id')) s)
                           (id' :: idents) sg
-  | (Sig_value(id, _) | Sig_typext(id, _, _) |
-     Sig_class(id, _, _) | Sig_class_type(id, _, _)) :: sg ->
+  | (Sig_class(id, _, _) | Sig_class_type(id, _, _)) :: sg ->
+      (* cheat and pretend they are types cf. PR#6650 *)
+      let id' = Ident.rename id in
+      rename_bound_idents (add_type id (Pident id') s) (id' :: idents) sg
+  | (Sig_value(id, _) | Sig_typext(id, _, _)) :: sg ->
       let id' = Ident.rename id in
       rename_bound_idents s (id' :: idents) sg
 

@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (* Elimination of useless Llet(Alias) bindings.
    Also transform let-bound references into variables. *)
@@ -24,9 +27,10 @@ let rec eliminate_ref id = function
     Lvar v as lam ->
       if Ident.same v id then raise Real_reference else lam
   | Lconst cst as lam -> lam
-  | Lapply(e1, el, loc) ->
-      Lapply(eliminate_ref id e1, List.map (eliminate_ref id) el, loc)
-  | Lfunction(kind, params, body) as lam ->
+  | Lapply ap ->
+      Lapply{ap with ap_func = eliminate_ref id ap.ap_func;
+                     ap_args = List.map (eliminate_ref id) ap.ap_args}
+  | Lfunction{kind; params; body} as lam ->
       if IdentSet.mem id (free_variables lam)
       then raise Real_reference
       else lam
@@ -37,7 +41,7 @@ let rec eliminate_ref id = function
               eliminate_ref id e2)
   | Lprim(Pfield 0, [Lvar v]) when Ident.same v id ->
       Lvar id
-  | Lprim(Psetfield(0, _), [Lvar v; e]) when Ident.same v id ->
+  | Lprim(Psetfield(0, _, _), [Lvar v; e]) when Ident.same v id ->
       Lassign(id, eliminate_ref id e)
   | Lprim(Poffsetref delta, [Lvar v]) when Ident.same v id ->
       Lassign(id, Lprim(Poffsetint delta, [Lvar id]))
@@ -106,8 +110,8 @@ let simplify_exits lam =
 
   let rec count = function
   | (Lvar _| Lconst _) -> ()
-  | Lapply(l1, ll, _) -> count l1; List.iter count ll
-  | Lfunction(kind, params, l) -> count l
+  | Lapply ap -> count ap.ap_func; List.iter count ap.ap_args
+  | Lfunction{kind; params; body = l} -> count l
   | Llet(str, v, l1, l2) ->
       count l2; count l1
   | Lletrec(bindings, body) ->
@@ -193,8 +197,11 @@ let simplify_exits lam =
 
   let rec simplif = function
   | (Lvar _|Lconst _) as l -> l
-  | Lapply(l1, ll, loc) -> Lapply(simplif l1, List.map simplif ll, loc)
-  | Lfunction(kind, params, l) -> Lfunction(kind, params, simplif l)
+  | Lapply ap ->
+      Lapply{ap with ap_func = simplif ap.ap_func;
+                     ap_args = List.map simplif ap.ap_args}
+  | Lfunction{kind; params; body = l; attr} ->
+     Lfunction{kind; params; body = simplif l; attr}
   | Llet(kind, v, l1, l2) -> Llet(kind, v, simplif l1, simplif l2)
   | Lletrec(bindings, body) ->
       Lletrec(List.map (fun (v, l) -> (v, simplif l)) bindings, simplif body)
@@ -202,16 +209,26 @@ let simplify_exits lam =
     let ll = List.map simplif ll in
     match p, ll with
         (* Simplify %revapply, for n-ary functions with n > 1 *)
-      | Prevapply loc, [x; Lapply(f, args, _)]
-      | Prevapply loc, [x; Levent (Lapply(f, args, _),_)] ->
-        Lapply(f, args@[x], loc)
-      | Prevapply loc, [x; f] -> Lapply(f, [x], loc)
+      | Prevapply loc, [x; Lapply ap]
+      | Prevapply loc, [x; Levent (Lapply ap,_)] ->
+        Lapply {ap with ap_args = ap.ap_args @ [x]; ap_loc = loc}
+      | Prevapply loc, [x; f] -> Lapply {ap_should_be_tailcall=false;
+                                         ap_loc=loc;
+                                         ap_func=f;
+                                         ap_args=[x];
+                                         ap_inlined=Default_inline;
+                                         ap_specialised=Default_specialise}
 
         (* Simplify %apply, for n-ary functions with n > 1 *)
-      | Pdirapply loc, [Lapply(f, args, _); x]
-      | Pdirapply loc, [Levent (Lapply(f, args, _),_); x] ->
-        Lapply(f, args@[x], loc)
-      | Pdirapply loc, [f; x] -> Lapply(f, [x], loc)
+      | Pdirapply loc, [Lapply ap; x]
+      | Pdirapply loc, [Levent (Lapply ap,_); x] ->
+        Lapply {ap with ap_args = ap.ap_args @ [x]; ap_loc = loc}
+      | Pdirapply loc, [f; x] -> Lapply {ap_should_be_tailcall=false;
+                                         ap_loc=loc;
+                                         ap_func=f;
+                                         ap_args=[x];
+                                         ap_inlined=Default_inline;
+                                         ap_specialised=Default_specialise}
 
       | _ -> Lprim(p, ll)
      end
@@ -338,15 +355,16 @@ let simplify_lets lam =
   | Lconst cst -> ()
   | Lvar v ->
       use_var bv v 1
-  | Lapply(Lfunction(Curried, params, body), args, _)
+  | Lapply{ap_func = Lfunction{kind = Curried; params; body}; ap_args = args}
     when optimize && List.length params = List.length args ->
       count bv (beta_reduce params body args)
-  | Lapply(Lfunction(Tupled, params, body), [Lprim(Pmakeblock _, args)], _)
+  | Lapply{ap_func = Lfunction{kind = Tupled; params; body};
+           ap_args = [Lprim(Pmakeblock _, args)]}
     when optimize && List.length params = List.length args ->
       count bv (beta_reduce params body args)
-  | Lapply(l1, ll, _) ->
+  | Lapply{ap_func = l1; ap_args = ll} ->
       count bv l1; List.iter (count bv) ll
-  | Lfunction(kind, params, l) ->
+  | Lfunction{kind; params; body = l} ->
       count Tbl.empty l
   | Llet(str, v, Lvar w, l2) when optimize ->
       (* v will be replaced by w in l2, so each occurrence of v in l2
@@ -430,14 +448,23 @@ let simplify_lets lam =
         l
       end
   | Lconst cst as l -> l
-  | Lapply(Lfunction(Curried, params, body), args, _)
+  | Lapply{ap_func = Lfunction{kind = Curried; params; body}; ap_args = args}
     when optimize && List.length params = List.length args ->
       simplif (beta_reduce params body args)
-  | Lapply(Lfunction(Tupled, params, body), [Lprim(Pmakeblock _, args)], _)
+  | Lapply{ap_func = Lfunction{kind = Tupled; params; body};
+           ap_args = [Lprim(Pmakeblock _, args)]}
     when optimize && List.length params = List.length args ->
       simplif (beta_reduce params body args)
-  | Lapply(l1, ll, loc) -> Lapply(simplif l1, List.map simplif ll, loc)
-  | Lfunction(kind, params, l) -> Lfunction(kind, params, simplif l)
+  | Lapply ap -> Lapply {ap with ap_func = simplif ap.ap_func;
+                                 ap_args = List.map simplif ap.ap_args}
+  | Lfunction{kind; params; body = l; attr} ->
+      begin match simplif l with
+        Lfunction{kind=Curried; params=params'; body; attr}
+        when kind = Curried && optimize ->
+          Lfunction{kind; params = params @ params'; body; attr}
+      | body ->
+          Lfunction{kind; params; body; attr}
+      end
   | Llet(str, v, Lvar w, l2) when optimize ->
       Hashtbl.add subst v (simplif (Lvar w));
       simplif l2
@@ -516,10 +543,16 @@ let rec emit_tail_infos is_tail lambda =
   match lambda with
   | Lvar _ -> ()
   | Lconst _ -> ()
-  | Lapply (func, l, loc) ->
-      list_emit_tail_infos false l;
-      Stypes.record (Stypes.An_call (loc, call_kind l))
-  | Lfunction (_, _, lam) ->
+  | Lapply ap ->
+      if ap.ap_should_be_tailcall
+      && not is_tail
+      && Warnings.is_active Warnings.Expect_tailcall
+        then Location.prerr_warning ap.ap_loc Warnings.Expect_tailcall;
+      emit_tail_infos false ap.ap_func;
+      list_emit_tail_infos false ap.ap_args;
+      if !Clflags.annotations then
+        Stypes.record (Stypes.An_call (ap.ap_loc, call_kind ap.ap_args))
+  | Lfunction {body = lam} ->
       emit_tail_infos true lam
   | Llet (_, _, lam, body) ->
       emit_tail_infos false lam;
@@ -574,7 +607,8 @@ let rec emit_tail_infos is_tail lambda =
       emit_tail_infos false meth;
       emit_tail_infos false obj;
       list_emit_tail_infos false args;
-      Stypes.record (Stypes.An_call (loc, call_kind (obj :: args)))
+      if !Clflags.annotations then
+        Stypes.record (Stypes.An_call (loc, call_kind (obj :: args)));
   | Levent (lam, _) ->
       emit_tail_infos is_tail lam
   | Lifused (_, lam) ->
@@ -584,10 +618,68 @@ and list_emit_tail_infos_fun f is_tail =
 and list_emit_tail_infos is_tail =
   List.iter (emit_tail_infos is_tail)
 
+(* Split a function with default parameters into a wrapper and an
+   inner function.  The wrapper fills in missing optional parameters
+   with their default value and tail-calls the inner function.  The
+   wrapper can then hopefully be inlined on most call sites to avoid
+   the overhead associated with boxing an optional argument with a
+   'Some' constructor, only to deconstruct it immediately in the
+   function's body. *)
+
+let split_default_wrapper ?(create_wrapper_body = fun lam -> lam)
+      fun_id kind params body attr =
+  let rec aux map = function
+    | Llet(Strict, id, (Lifthenelse(Lvar optparam, _, _) as def), rest) when
+        Ident.name optparam = "*opt*" && List.mem optparam params
+          && not (List.mem_assoc optparam map)
+      ->
+        let wrapper_body, inner = aux ((optparam, id) :: map) rest in
+        Llet(Strict, id, def, wrapper_body), inner
+    | _ when map = [] -> raise Exit
+    | body ->
+        (* Check that those *opt* identifiers don't appear in the remaining
+           body. This should not appear, but let's be on the safe side. *)
+        let fv = Lambda.free_variables body in
+        List.iter (fun (id, _) -> if IdentSet.mem id fv then raise Exit) map;
+
+        let inner_id = Ident.create (Ident.name fun_id ^ "_inner") in
+        let map_param p = try List.assoc p map with Not_found -> p in
+        let args = List.map (fun p -> Lvar (map_param p)) params in
+        let wrapper_body =
+          Lapply {
+            ap_func = Lvar inner_id;
+            ap_args = args;
+            ap_loc = Location.none;
+            ap_should_be_tailcall = false;
+            ap_inlined = Default_inline;
+            ap_specialised = Default_specialise;
+          }
+        in
+        let inner_params = List.map map_param params in
+        let new_ids = List.map Ident.rename inner_params in
+        let subst = List.fold_left2
+            (fun s id new_id ->
+               Ident.add id (Lvar new_id) s)
+            Ident.empty inner_params new_ids
+        in
+        let body = Lambda.subst_lambda subst body in
+        let inner_fun =
+          Lfunction { kind = Curried; params = new_ids; body; attr; }
+        in
+        (wrapper_body, (inner_id, inner_fun))
+  in
+  try
+    let wrapper_body, inner = aux [] body in
+    [(fun_id, Lfunction{kind; params; body = create_wrapper_body wrapper_body;
+       attr}); inner]
+  with Exit ->
+    [(fun_id, Lfunction{kind; params; body; attr})]
+
 (* The entry point:
    simplification + emission of tailcall annotations, if needed. *)
 
 let simplify_lambda lam =
   let res = simplify_lets (simplify_exits lam) in
-  if !Clflags.annotations then emit_tail_infos true res;
+  if !Clflags.annotations || Warnings.is_active Warnings.Expect_tailcall
+    then emit_tail_infos true res;
   res

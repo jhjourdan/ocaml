@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*    Valerie Menissier-Morain, projet Cristal, INRIA Rocquencourt     *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                OCaml                                   *)
+(*                                                                        *)
+(*     Valerie Menissier-Morain, projet Cristal, INRIA Rocquencourt       *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 open Test;;
 open Nat;;
@@ -1185,4 +1188,23 @@ failwith_test 8
 failwith_test 9
 (approx_ratio_exp 5) (create_ratio (big_int_of_int 0) (big_int_of_int 0))
 (Failure "approx_ratio_exp infinite or undefined rational number")
+;;
+
+testing_function "float_of_ratio";;
+let ok = ref true in
+for i = 1 to 100 do
+  let p = Random.int64 0x20000000000000L
+  and pexp = Random.int 100
+  and q = Random.int64 0x20000000000000L
+  and qexp = Random.int 100 in
+  if not (eq_float
+             (float_of_ratio
+               (create_ratio
+                 (shift_left_big_int (big_int_of_int64 p) pexp)
+                 (shift_left_big_int (big_int_of_int64 q) qexp)))
+             (ldexp (Int64.to_float p) pexp /.
+              ldexp (Int64.to_float q) qexp))
+  then ok := false
+done;
+test 1 eq (!ok, true)
 ;;

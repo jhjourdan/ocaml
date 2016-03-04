@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (* Common functions for emitting assembly code *)
 
@@ -244,28 +247,41 @@ let reset_debug_info () =
 
 (* We only diplay .file if the file has not been seen before. We
    display .loc for every instruction. *)
-let emit_debug_info dbg =
+let emit_debug_info_gen dbg file_emitter loc_emitter =
   if is_cfi_enabled () &&
     (!Clflags.debug || Config.with_frame_pointers)
      && dbg.Debuginfo.dinfo_line > 0 (* PR#6243 *)
   then begin
-    let line = dbg.Debuginfo.dinfo_line in
-    let file_name = dbg.Debuginfo.dinfo_file in
+    let { Debuginfo.
+          dinfo_line = line;
+          dinfo_char_start = col;
+          dinfo_file = file_name;
+        } = dbg in
     let file_num =
       try List.assoc file_name !file_pos_nums
       with Not_found ->
         let file_num = !file_pos_num_cnt in
         incr file_pos_num_cnt;
-        emit_string "\t.file\t";
-        emit_int file_num; emit_char '\t';
-        emit_string_literal file_name; emit_char '\n';
+        file_emitter ~file_num ~file_name;
         file_pos_nums := (file_name,file_num) :: !file_pos_nums;
         file_num in
-    emit_string "\t.loc\t";
-    emit_int file_num; emit_char '\t';
-    emit_int line; emit_char '\n'
+    loc_emitter ~file_num ~line ~col;
   end
+
+let emit_debug_info dbg =
+  emit_debug_info_gen dbg (fun ~file_num ~file_name ->
+      emit_string "\t.file\t";
+      emit_int file_num; emit_char '\t';
+      emit_string_literal file_name; emit_char '\n';
+    )
+    (fun ~file_num ~line ~col:_ ->
+       emit_string "\t.loc\t";
+       emit_int file_num; emit_char '\t';
+       emit_int line; emit_char '\n')
 
 let reset () =
   reset_debug_info ();
   frame_descriptors := []
+
+let binary_backend_available = ref false
+let create_asm_file = ref true

@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                             OCamldoc                                *)
-(*                                                                     *)
-(*            Maxence Guesdon, projet Cristal, INRIA Rocquencourt      *)
-(*                                                                     *)
-(*  Copyright 2001 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Maxence Guesdon, projet Cristal, INRIA Rocquencourt        *)
+(*                                                                        *)
+(*   Copyright 2001 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (** Interface to the information collected in source files. *)
 
@@ -187,7 +190,7 @@ module Extension :
     and t_extension_constructor = Odoc_extension.t_extension_constructor =
         {
           xt_name : Name.t ;
-          xt_args: Types.type_expr list ; (** the types of the parameters *)
+          xt_args: Odoc_type.constructor_args;
           xt_ret: Types.type_expr option ; (** the optional return type of the extension *)
           xt_type_extension: t_type_extension ; (** the type extension containing this constructor *)
           xt_alias: extension_alias option ; (** [None] when the extension is not a rebind. *)
@@ -226,7 +229,7 @@ module Exception :
         {
           ex_name : Name.t ;
           mutable ex_info : info option ; (** Information found in the optional associated comment. *)
-          ex_args : Types.type_expr list ; (** The types of the parameters. *)
+          ex_args : Odoc_type.constructor_args;
           ex_ret : Types.type_expr option ; (** The the optional return type of the exception. *)
           ex_alias : exception_alias option ; (** [None] when the exception is not a rebind. *)
           mutable ex_loc : location ;
@@ -240,15 +243,6 @@ module Type :
     type private_flag = Odoc_type.private_flag =
       Private | Public
 
-    (** Description of a variant type constructor. *)
-    type variant_constructor = Odoc_type.variant_constructor =
-        {
-          vc_name : string ; (** Name of the constructor. *)
-          vc_args : Types.type_expr list ; (** Arguments of the constructor. *)
-          vc_ret : Types.type_expr option ;
-          mutable vc_text : info option ; (** Optional description in the associated comment. *)
-        }
-
     (** Description of a record type field. *)
     type record_field = Odoc_type.record_field =
         {
@@ -256,6 +250,19 @@ module Type :
           rf_mutable : bool ; (** [true] if mutable. *)
           rf_type : Types.type_expr ; (** Type of the field. *)
           mutable rf_text : info option ; (** Optional description in the associated comment.*)
+        }
+
+    (** Description of a variant type constructor. *)
+    type constructor_args = Odoc_type.constructor_args =
+      | Cstr_record of record_field list
+      | Cstr_tuple of Types.type_expr list
+
+    type variant_constructor = Odoc_type.variant_constructor =
+        {
+          vc_name : string ; (** Name of the constructor. *)
+          vc_args : constructor_args;
+          vc_ret : Types.type_expr option ;
+          mutable vc_text : info option ; (** Optional description in the associated comment. *)
         }
 
     (** The various kinds of a type. *)
@@ -400,7 +407,7 @@ module Class :
         {
           cta_name : Name.t ; (** Complete name of the target class type. *)
           mutable cta_class : cct option ;  (** The target t_class or t_class_type, if we found it.*)
-          cta_type_parameters : Types.type_expr list ; (** The type parameters. A VOIR : mettre des string ? *)
+          cta_type_parameters : Types.type_expr list ; (** The type parameters. FIXME : use strings? *)
         }
 
     and class_type_kind = Odoc_class.class_type_kind =
@@ -721,6 +728,8 @@ val string_of_info : info -> string
 (** @return a string to describe the given type. *)
 val string_of_type : Type.t_type -> string
 
+val string_of_record : Type.record_field list -> string
+
 (** @return a string to describe the given type extension. *)
 val string_of_type_extension : Extension.t_type_extension -> string
 
@@ -774,11 +783,11 @@ val create_index_lists : 'a list -> ('a -> string) -> 'a list list
 val remove_option : Types.type_expr -> Types.type_expr
 
 (** Return [true] if the given label is optional.*)
-val is_optional : string -> bool
+val is_optional : Asttypes.arg_label -> bool
 
 (** Return the label name for the given label,
    i.e. removes the beginning '?' if present.*)
-val label_name : string -> string
+val label_name : Asttypes.arg_label -> string
 
 (** Return the given name where the module name or
    part of it was removed, according to the list of modules

@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                             OCamldoc                                *)
-(*                                                                     *)
-(*            Maxence Guesdon, projet Cristal, INRIA Rocquencourt      *)
-(*                                                                     *)
-(*  Copyright 2001 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Maxence Guesdon, projet Cristal, INRIA Rocquencourt        *)
+(*                                                                        *)
+(*   Copyright 2001 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (** Generation of LaTeX documentation. *)
 
@@ -293,7 +296,7 @@ class text =
     method latex_of_custom_text fmt s t = ()
 
     method latex_of_Target fmt ~target ~code =
-      if String.lowercase target = "latex" then
+      if String.lowercase_ascii target = "latex" then
         self#latex_of_Latex fmt code
       else
         ()
@@ -599,16 +602,16 @@ class latex =
                  let s_cons =
                    p fmt2 "@[<h 6>  | %s" constr.vc_name ;
                    begin match constr.vc_args, constr.vc_ret with
-                   | [], None -> ()
+                   | Cstr_tuple [], None -> ()
                    | l, None ->
                      p fmt2 " of@ %s"
-                       (self#normal_type_list ~par: false mod_name " * " l)
-                   | [], Some r ->
+                       (self#normal_cstr_args ~par: false mod_name l)
+                   | Cstr_tuple [], Some r ->
                      p fmt2 " :@ %s"
                        (self#normal_type mod_name r)
                    | l, Some r ->
                      p fmt2 " :@ %s@ %s@ %s"
-                       (self#normal_type_list ~par: false mod_name " * " l)
+                       (self#normal_cstr_args ~par: false mod_name l)
                        "->"
                        (self#normal_type mod_name r)
                    end ;
@@ -682,19 +685,19 @@ class latex =
                      p fmt2 "@[<h 6>  | %s" (Name.simple x.xt_name);
                      (
                        match x.xt_args, x.xt_ret with
-                           [], None -> ()
+                           Cstr_tuple [], None -> ()
                          | l, None ->
                              p fmt2 " %s@ %s"
                                "of"
-                               (self#normal_type_list ~par: false father " * " l)
-                         | [], Some r ->
+                               (self#normal_cstr_args ~par: false father l)
+                         | Cstr_tuple [], Some r ->
                              p fmt2 " %s@ %s"
                                ":"
                                (self#normal_type father r)
                          | l, Some r ->
                              p fmt2 " %s@ %s@ %s@ %s"
                                ":"
-                               (self#normal_type_list ~par: false father " * " l)
+                               (self#normal_cstr_args ~par: false father l)
                                "->"
                                (self#normal_type father r)
                      );
@@ -798,21 +801,21 @@ class latex =
           self#latex_of_module_parameter fmt father p;
           self#latex_of_module_kind fmt father k
       | Module_apply (k1, k2) ->
-          (* TODO: l'application n'est pas correcte dans un .mli.
-             Que faire ? -> afficher le module_type du typedtree  *)
+          (* TODO: application is not correct in a .mli.
+             Fix? -> print the typedtree module_type *)
           self#latex_of_module_kind fmt father k1;
           self#latex_of_text fmt [Code "("];
           self#latex_of_module_kind fmt father k2;
           self#latex_of_text fmt [Code ")"]
       | Module_with (k, s) ->
-          (* TODO: a modifier quand Module_with sera plus detaille *)
+          (* TODO: modify when Module_with will be more detailled *)
           self#latex_of_module_type_kind fmt father k;
           self#latex_of_text fmt
             [ Code " ";
               Code (self#relative_idents father s) ;
             ]
       | Module_constraint (k, tk) ->
-          (* TODO: on affiche quoi ? *)
+          (* TODO: what should we print? *)
           self#latex_of_module_kind fmt father k
       | Module_typeof s ->
           self#latex_of_text fmt
@@ -834,7 +837,7 @@ class latex =
           self#latex_of_text fmt [Latex "\\end{ocamldocobjectend}\n"]
 
       | Class_apply capp ->
-          (* TODO: afficher le type final a partir du typedtree *)
+          (* TODO: print final type from typedtree *)
           self#latex_of_text fmt [Raw "class application not handled yet"]
 
       | Class_constr cco ->

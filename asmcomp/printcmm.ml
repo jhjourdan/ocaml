@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (* Pretty-printing of C-- code *)
 
@@ -16,6 +19,7 @@ open Format
 open Cmm
 
 let machtype_component ppf = function
+  | Val -> fprintf ppf "val"
   | Addr -> fprintf ppf "addr"
   | Int -> fprintf ppf "int"
   | Float -> fprintf ppf "float"
@@ -43,7 +47,8 @@ let chunk = function
   | Sixteen_signed -> "signed int16"
   | Thirtytwo_unsigned -> "unsigned int32"
   | Thirtytwo_signed -> "signed int32"
-  | Word -> ""
+  | Word_int -> "int"
+  | Word_val -> "val"
   | Single -> "float32"
   | Double -> "float64"
   | Double_u -> "float64u"
@@ -52,11 +57,15 @@ let operation = function
   | Capply(ty, d) -> "app" ^ Debuginfo.to_string d
   | Cextcall(lbl, ty, alloc, d) ->
       Printf.sprintf "extcall \"%s\"%s" lbl (Debuginfo.to_string d)
-  | Cload Word -> "load"
   | Cload c -> Printf.sprintf "load %s" (chunk c)
   | Calloc d -> "alloc" ^ Debuginfo.to_string d
-  | Cstore Word -> "store"
-  | Cstore c -> Printf.sprintf "store %s" (chunk c)
+  | Cstore (c, init) ->
+    let init =
+      match init with
+      | Lambda.Initialization -> "(init)"
+      | Lambda.Assignment -> ""
+    in
+    Printf.sprintf "store %s%s" (chunk c) init
   | Caddi -> "+"
   | Csubi -> "-"
   | Cmuli -> "*"
@@ -70,8 +79,8 @@ let operation = function
   | Clsr -> ">>u"
   | Casr -> ">>s"
   | Ccmpi c -> comparison c
+  | Caddv -> "+v"
   | Cadda -> "+a"
-  | Csuba -> "-a"
   | Ccmpa c -> Printf.sprintf "%sa" (comparison c)
   | Cnegf -> "~f"
   | Cabsf -> "absf"

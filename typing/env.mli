@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           *)
+(*                                                                        *)
+(*   Copyright 1996 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (* Environment handling *)
 
@@ -63,6 +66,7 @@ val find_type_expansion_opt:
 (* Find the manifest type information associated to a type for the sake
    of the compiler's type-based optimisations. *)
 val find_modtype_expansion: Path.t -> t -> module_type
+val add_functor_arg: Ident.t -> t -> t
 val is_functor_arg: Path.t -> t -> bool
 val normalize_path: Location.t option -> t -> Path.t -> Path.t
 (* Normalize the path to a concrete value or module.
@@ -81,18 +85,34 @@ val add_gadt_instance_chain: t -> int -> type_expr -> unit
 
 (* Lookup by long identifiers *)
 
-val lookup_value: Longident.t -> t -> Path.t * value_description
-val lookup_constructor: Longident.t -> t -> constructor_description
+(* ?loc is used to report 'deprecated module' warnings *)
+
+val lookup_value:
+  ?loc:Location.t -> Longident.t -> t -> Path.t * value_description
+val lookup_constructor:
+  ?loc:Location.t -> Longident.t -> t -> constructor_description
 val lookup_all_constructors:
+  ?loc:Location.t ->
   Longident.t -> t -> (constructor_description * (unit -> unit)) list
-val lookup_label: Longident.t -> t -> label_description
+val lookup_label:
+  ?loc:Location.t -> Longident.t -> t -> label_description
 val lookup_all_labels:
+  ?loc:Location.t ->
   Longident.t -> t -> (label_description * (unit -> unit)) list
-val lookup_type: Longident.t -> t -> Path.t * type_declaration
-val lookup_module: load:bool -> Longident.t -> t -> Path.t
-val lookup_modtype: Longident.t -> t -> Path.t * modtype_declaration
-val lookup_class: Longident.t -> t -> Path.t * class_declaration
-val lookup_cltype: Longident.t -> t -> Path.t * class_type_declaration
+val lookup_type:
+  ?loc:Location.t -> Longident.t -> t -> Path.t * type_declaration
+val lookup_module:
+  load:bool -> ?loc:Location.t -> Longident.t -> t -> Path.t
+val lookup_modtype:
+  ?loc:Location.t -> Longident.t -> t -> Path.t * modtype_declaration
+val lookup_class:
+  ?loc:Location.t -> Longident.t -> t -> Path.t * class_declaration
+val lookup_cltype:
+  ?loc:Location.t -> Longident.t -> t -> Path.t * class_type_declaration
+
+val update_value:
+  string -> (value_description -> value_description) -> t -> t
+  (* Used only in Typecore.duplicate_ident_types. *)
 
 exception Recmodule
   (* Raise by lookup_module when the identifier refers
@@ -134,7 +154,7 @@ val enter_type: string -> type_declaration -> t -> Ident.t * t
 val enter_extension: string -> extension_constructor -> t -> Ident.t * t
 val enter_module: ?arg:bool -> string -> module_type -> t -> Ident.t * t
 val enter_module_declaration:
-    ?arg:bool -> string -> module_declaration -> t -> Ident.t * t
+    ?arg:bool -> Ident.t -> module_declaration -> t -> t
 val enter_modtype: string -> modtype_declaration -> t -> Ident.t * t
 val enter_class: string -> class_declaration -> t -> Ident.t * t
 val enter_cltype: string -> class_type_declaration -> t -> Ident.t * t
@@ -153,10 +173,13 @@ val get_unit_name: unit -> string
 
 val read_signature: string -> string -> signature
         (* Arguments: module name, file name. Results: signature. *)
-val save_signature: signature -> string -> string -> signature
+val save_signature:
+  deprecated:string option -> signature -> string -> string -> signature
         (* Arguments: signature, module name, file name. *)
 val save_signature_with_imports:
-    signature -> string -> string -> (string * Digest.t option) list -> signature
+  deprecated:string option ->
+  signature -> string -> string -> (string * Digest.t option) list
+  -> signature
         (* Arguments: signature, module name, file name,
            imported units with their CRCs. *)
 
@@ -167,6 +190,9 @@ val crc_of_unit: string -> Digest.t
 (* Return the set of compilation units imported, with their CRC *)
 
 val imports: unit -> (string * Digest.t option) list
+
+(* [is_imported_opaque md] returns true if [md] is an opaque imported module  *)
+val is_imported_opaque: string -> bool
 
 (* Direct access to the table of imported compilation units with their CRC *)
 
@@ -212,8 +238,10 @@ val mark_constructor:
 val mark_extension_used:
     constructor_usage -> t -> extension_constructor -> string -> unit
 
-val in_signature: t -> t
+val in_signature: bool -> t -> t
 val implicit_coercion: t -> t
+
+val is_in_signature: t -> bool
 
 val set_value_used_callback:
     string -> value_description -> (unit -> unit) -> unit
@@ -227,6 +255,8 @@ val check_modtype_inclusion:
 val add_delayed_check_forward: ((unit -> unit) -> unit) ref
 (* Forward declaration to break mutual recursion with Mtype. *)
 val strengthen: (t -> module_type -> Path.t -> module_type) ref
+(* Forward declaration to break mutual recursion with Ctype. *)
+val same_constr: (t -> type_expr -> type_expr -> bool) ref
 
 (** Folding over all identifiers (for analysis purpose) *)
 

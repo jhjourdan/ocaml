@@ -1,15 +1,17 @@
-/***********************************************************************/
-/*                                                                     */
-/*                                OCaml                                */
-/*                                                                     */
-/*         Manuel Serrano and Xavier Leroy, INRIA Rocquencourt         */
-/*                                                                     */
-/*  Copyright 2000 Institut National de Recherche en Informatique et   */
-/*  en Automatique.  All rights reserved.  This file is distributed    */
-/*  under the terms of the GNU Library General Public License, with    */
-/*  the special exception on linking described in file ../LICENSE.     */
-/*                                                                     */
-/***********************************************************************/
+/**************************************************************************/
+/*                                                                        */
+/*                                 OCaml                                  */
+/*                                                                        */
+/*          Manuel Serrano and Xavier Leroy, INRIA Rocquencourt           */
+/*                                                                        */
+/*   Copyright 2000 Institut National de Recherche en Informatique et     */
+/*     en Automatique.                                                    */
+/*                                                                        */
+/*   All rights reserved.  This file is distributed under the terms of    */
+/*   the GNU Lesser General Public License version 2.1, with the          */
+/*   special exception on linking described in the file LICENSE.          */
+/*                                                                        */
+/**************************************************************************/
 
 #ifndef CAML_CUSTOM_H
 #define CAML_CUSTOM_H
@@ -26,8 +28,8 @@ struct custom_operations {
   int (*compare)(value v1, value v2);
   intnat (*hash)(value v);
   void (*serialize)(value v,
-                    /*out*/ uintnat * wsize_32 /*size in bytes*/,
-                    /*out*/ uintnat * wsize_64 /*size in bytes*/);
+                    /*out*/ uintnat * bsize_32 /*size in bytes*/,
+                    /*out*/ uintnat * bsize_64 /*size in bytes*/);
   uintnat (*deserialize)(void * dst);
   int (*compare_ext)(value v1, value v2);
 };

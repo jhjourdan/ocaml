@@ -1,16 +1,19 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Gallium, INRIA Rocquencourt         *)
-(*                  Benedikt Meurer, University of Siegen              *)
-(*                                                                     *)
-(*    Copyright 2013 Institut National de Recherche en Informatique    *)
-(*    et en Automatique. Copyright 2012 Benedikt Meurer. All rights    *)
-(*    reserved.  This file is distributed  under the terms of the Q    *)
-(*    Public License version 1.0.                                      *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Xavier Leroy, projet Gallium, INRIA Rocquencourt           *)
+(*                 Benedikt Meurer, University of Siegen                  *)
+(*                                                                        *)
+(*   Copyright 2013 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*   Copyright 2012 Benedikt Meurer.                                      *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (* Description of the ARM processor in 64-bit mode *)
 
@@ -59,8 +62,8 @@ let num_register_classes = 2
 
 let register_class r =
   match r.typ with
-  | (Int | Addr)  -> 0
-  | Float         -> 1
+  | Val | Int | Addr  -> 0
+  | Float -> 1
 
 let num_available_registers =
   [| 23; 32 |] (* first 23 int regs allocatable; all float regs allocatable *)
@@ -111,7 +114,7 @@ let calling_conventions
   let ofs = ref 0 in
   for i = 0 to Array.length arg - 1 do
     match arg.(i).typ with
-      Int | Addr as ty ->
+    | Val | Int | Addr as ty ->
         if !int <= last_int then begin
           loc.(i) <- phys_reg !int;
           incr int
@@ -140,6 +143,8 @@ let not_supported ofs = fatal_error "Proc.loc_results: cannot call"
      remaining args on stack.
    Return values in r0...r15 or d0...d15. *)
 
+let max_arguments_for_tailcalls = 16
+
 let loc_arguments arg =
   calling_conventions 0 15 100 115 outgoing arg
 let loc_parameters arg =
@@ -154,7 +159,11 @@ let loc_results res =
    Return values in r0...r1 or d0. *)
 
 let loc_external_arguments arg =
-  calling_conventions 0 7 100 107 outgoing arg
+  let arg =
+    Array.map (fun regs -> assert (Array.length regs = 1); regs.(0)) arg
+  in
+  let loc, alignment = calling_conventions 0 7 100 107 outgoing arg in
+  Array.map (fun reg -> [|reg|]) loc, alignment
 let loc_external_results res =
   let (loc, _) = calling_conventions 0 1 100 100 not_supported res in loc
 

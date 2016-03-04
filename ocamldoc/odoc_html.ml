@@ -1,14 +1,17 @@
-(***********************************************************************)
-(*                                                                     *)
-(*                             OCamldoc                                *)
-(*                                                                     *)
-(*            Maxence Guesdon, projet Cristal, INRIA Rocquencourt      *)
-(*                                                                     *)
-(*  Copyright 2001 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
+(**************************************************************************)
+(*                                                                        *)
+(*                                 OCaml                                  *)
+(*                                                                        *)
+(*             Maxence Guesdon, projet Cristal, INRIA Rocquencourt        *)
+(*                                                                        *)
+(*   Copyright 2001 Institut National de Recherche en Informatique et     *)
+(*     en Automatique.                                                    *)
+(*                                                                        *)
+(*   All rights reserved.  This file is distributed under the terms of    *)
+(*   the GNU Lesser General Public License version 2.1, with the          *)
+(*   special exception on linking described in the file LICENSE.          *)
+(*                                                                        *)
+(**************************************************************************)
 
 (** Generation of html documentation.*)
 
@@ -168,8 +171,7 @@ module Naming =
 
     (** Return the complete filename for the code of the given value. *)
     let file_code_value_complete_target v =
-      let f = code_prefix^mark_value^(subst_infix_symbols v.val_name)^".html" in
-      f
+      code_prefix^mark_value^(subst_infix_symbols v.val_name)^".html"
 
     (** Return the link target for the given attribute. *)
     let attribute_target a = target mark_attribute (Name.simple a.att_value.val_name)
@@ -179,8 +181,7 @@ module Naming =
 
     (** Return the complete filename for the code of the given attribute. *)
     let file_code_attribute_complete_target a =
-      let f = code_prefix^mark_attribute^a.att_value.val_name^".html" in
-      f
+      code_prefix^mark_attribute^a.att_value.val_name^".html"
 
     (** Return the link target for the given method. *)
     let method_target m = target mark_method (Name.simple m.met_value.val_name)
@@ -190,8 +191,7 @@ module Naming =
 
     (** Return the complete filename for the code of the given method. *)
     let file_code_method_complete_target m =
-      let f = code_prefix^mark_method^m.met_value.val_name^".html" in
-      f
+      code_prefix^mark_method^m.met_value.val_name^".html"
 
     (** Return the link target for the given label section. *)
     let label_target l = target "" l
@@ -202,20 +202,17 @@ module Naming =
     (** Return the complete filename for the code of the type of the
        given module or module type name. *)
     let file_type_module_complete_target name =
-      let f = type_prefix^name^".html" in
-      f
+      type_prefix^name^".html"
 
     (** Return the complete filename for the code of the
        given module name. *)
     let file_code_module_complete_target name =
-      let f = code_prefix^name^".html" in
-      f
+      code_prefix^name^".html"
 
     (** Return the complete filename for the code of the type of the
        given class or class type name. *)
     let file_type_class_complete_target name =
-      let f = type_prefix^name^".html" in
-      f
+      type_prefix^name^".html"
   end
 
 module StringSet = Set.Make (struct
@@ -259,8 +256,7 @@ class virtual text =
     method label_of_text t=
       let t2 = Odoc_info.first_sentence_of_text t in
       let s = Odoc_info.string_of_text t2 in
-      let s2 = self#keep_alpha_num s in
-      s2
+      self#keep_alpha_num s
 
     (** Create a label for the associated title.
        Return the label specified by the user or a label created
@@ -307,7 +303,7 @@ class virtual text =
     method html_of_custom_text b s t = ()
 
     method html_of_Target b ~target ~code =
-      if String.lowercase target = "html" then bs b code else ()
+      if String.lowercase_ascii target = "html" then bs b code else ()
 
     method html_of_Raw b s = bs b (self#escape s)
 
@@ -791,8 +787,6 @@ class html =
     val mutable default_style_options =
       [ ".keyword { font-weight : bold ; color : Red }" ;
         ".keywordsign { color : #C04600 }" ;
-        ".superscript { font-size : 4 }" ;
-        ".subscript { font-size : 4 }" ;
         ".comment { color : Green }" ;
         ".constructor { color : Blue }" ;
         ".type { color : #5C6585 }" ;
@@ -1178,12 +1172,10 @@ class html =
           else
             s_final
       in
-      let s2 = Str.global_substitute
-          (Str.regexp "\\([A-Z]\\([a-zA-Z_'0-9]\\)*\\.\\)+\\([a-z][a-zA-Z_'0-9]*\\)")
-          f
-          s
-      in
-      s2
+      Str.global_substitute
+        (Str.regexp "\\([A-Z]\\([a-zA-Z_'0-9]\\)*\\.\\)+\\([a-z][a-zA-Z_'0-9]*\\)")
+        f
+        s
 
     (** Take a string and return the string where fully qualified module idents
        have been replaced by links to the module referenced by the ident.*)
@@ -1202,12 +1194,10 @@ class html =
         else
           s_final
       in
-      let s2 = Str.global_substitute
-          (Str.regexp "\\([A-Z]\\([a-zA-Z_'0-9]\\)*\\)\\(\\.[A-Z][a-zA-Z_'0-9]*\\)*")
-          f
-          s
-      in
-      s2
+      Str.global_substitute
+        (Str.regexp "\\([A-Z]\\([a-zA-Z_'0-9]\\)*\\)\\(\\.[A-Z][a-zA-Z_'0-9]*\\)*")
+        f
+        s
 
     (** Print html code to display a [Types.type_expr]. *)
     method html_of_type_expr b m_name t =
@@ -1218,12 +1208,18 @@ class html =
       bs b "</code>"
 
     (** Print html code to display a [Types.type_expr list]. *)
-    method html_of_type_expr_list ?par b m_name sep l =
-      print_DEBUG "html#html_of_type_expr_list";
-      let s = Odoc_info.string_of_type_list ?par sep l in
-      print_DEBUG "html#html_of_type_expr_list: 1";
+    method html_of_cstr_args ?par b m_name sep l =
+      print_DEBUG "html#html_of_cstr_args";
+      let s =
+        match l with
+        | Cstr_tuple l ->
+            Odoc_info.string_of_type_list ?par sep l
+        | Cstr_record l ->
+            Odoc_info.string_of_record l
+      in
+      print_DEBUG "html#html_of_cstr_args: 1";
       let s2 = newline_to_indented_br s in
-      print_DEBUG "html#html_of_type_expr_list: 2";
+      print_DEBUG "html#html_of_cstr_args: 2";
       bs b "<code class=\"type\">";
       bs b (self#create_fully_qualified_idents_links m_name s2);
       bs b "</code>"
@@ -1297,8 +1293,8 @@ class html =
           if not !html_short_functors then
             bs b "</div>"
       | Module_apply (k1, k2) ->
-          (* TODO: l'application n'est pas correcte dans un .mli.
-             Que faire ? -> afficher le module_type du typedtree  *)
+          (* TODO: application is not correct in a .mli.
+             What to do -> print typedtree module_type    *)
           self#html_of_module_kind b father k1;
           self#html_of_text b [Code "("];
           self#html_of_module_kind b father k2;
@@ -1310,7 +1306,7 @@ class html =
           bs b (self#create_fully_qualified_module_idents_links father s);
           bs b "</code>"
       | Module_constraint (k, tk) ->
-          (* TODO: on affiche quoi ? *)
+          (* TODO: what to print ? *)
           self#html_of_module_kind b father ?modu k
       | Module_typeof s ->
           bs b "<code class=\"type\">module type of ";
@@ -1478,16 +1474,16 @@ class html =
           (Name.simple x.xt_name);
         (
           match x.xt_args, x.xt_ret with
-              [], None -> ()
+              Cstr_tuple [], None -> ()
             | l,None ->
                 bs b (" " ^ (self#keyword "of") ^ " ");
-                self#html_of_type_expr_list ~par: false b father " * " l;
-            | [],Some r ->
+                self#html_of_cstr_args ~par: false b father " * " l;
+            | Cstr_tuple [],Some r ->
                 bs b (" " ^ (self#keyword ":") ^ " ");
                 self#html_of_type_expr b father r;
             | l,Some r ->
                 bs b (" " ^ (self#keyword ":") ^ " ");
-                self#html_of_type_expr_list ~par: false b father " * " l;
+                self#html_of_cstr_args ~par: false b father " * " l;
                 bs b (" " ^ (self#keyword "->") ^ " ");
                 self#html_of_type_expr b father r;
         );
@@ -1539,17 +1535,17 @@ class html =
       bs b "</span>";
       (
         match e.ex_args, e.ex_ret with
-          [], None -> ()
+          Cstr_tuple [], None -> ()
         | l,None ->
             bs b (" "^(self#keyword "of")^" ");
-            self#html_of_type_expr_list
+            self#html_of_cstr_args
                    ~par: false b (Name.father e.ex_name) " * " e.ex_args
-        | [],Some r ->
+        | Cstr_tuple [],Some r ->
             bs b (" " ^ (self#keyword ":") ^ " ");
             self#html_of_type_expr b (Name.father e.ex_name) r;
         | l,Some r ->
             bs b (" " ^ (self#keyword ":") ^ " ");
-            self#html_of_type_expr_list
+            self#html_of_cstr_args
                    ~par: false b (Name.father e.ex_name) " * " l;
             bs b (" " ^ (self#keyword "->") ^ " ");
             self#html_of_type_expr b (Name.father e.ex_name) r;
@@ -1659,16 +1655,16 @@ class html =
               (self#constructor constr.vc_name);
             (
              match constr.vc_args, constr.vc_ret with
-               [], None -> ()
+               Cstr_tuple [], None -> ()
              | l,None ->
                  bs b (" " ^ (self#keyword "of") ^ " ");
-                 self#html_of_type_expr_list ~par: false b father " * " l;
-             | [],Some r ->
+                 self#html_of_cstr_args ~par: false b father " * " l;
+             | Cstr_tuple [],Some r ->
                  bs b (" " ^ (self#keyword ":") ^ " ");
                  self#html_of_type_expr b father r;
              | l,Some r ->
                  bs b (" " ^ (self#keyword ":") ^ " ");
-                 self#html_of_type_expr_list ~par: false b father " * " l;
+                 self#html_of_cstr_args ~par: false b father " * " l;
                  bs b (" " ^ (self#keyword "->") ^ " ");
                  self#html_of_type_expr b father r;
             );
@@ -2306,7 +2302,7 @@ class html =
             [] -> ()
           | e :: _ ->
               let s =
-                match (Char.uppercase (Name.simple (name e)).[0]) with
+                match (Char.uppercase_ascii (Name.simple (name e)).[0]) with
                   'A'..'Z' as c -> String.make 1 c
                 | _ -> ""
               in

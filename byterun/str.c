@@ -1,15 +1,17 @@
-/***********************************************************************/
-/*                                                                     */
-/*                                OCaml                                */
-/*                                                                     */
-/*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         */
-/*                                                                     */
-/*  Copyright 1996 Institut National de Recherche en Informatique et   */
-/*  en Automatique.  All rights reserved.  This file is distributed    */
-/*  under the terms of the GNU Library General Public License, with    */
-/*  the special exception on linking described in file ../LICENSE.     */
-/*                                                                     */
-/***********************************************************************/
+/**************************************************************************/
+/*                                                                        */
+/*                                 OCaml                                  */
+/*                                                                        */
+/*             Xavier Leroy, projet Cristal, INRIA Rocquencourt           */
+/*                                                                        */
+/*   Copyright 1996 Institut National de Recherche en Informatique et     */
+/*     en Automatique.                                                    */
+/*                                                                        */
+/*   All rights reserved.  This file is distributed under the terms of    */
+/*   the GNU Lesser General Public License version 2.1, with the          */
+/*   special exception on linking described in the file LICENSE.          */
+/*                                                                        */
+/**************************************************************************/
 
 /* Operations on strings */
 
@@ -21,10 +23,8 @@
 #include "caml/fail.h"
 #include "caml/mlvalues.h"
 #include "caml/misc.h"
-#ifdef HAS_LOCALE
-#include <locale.h>
-#endif
 
+/* returns a number of bytes (chars) */
 CAMLexport mlsize_t caml_string_length(value s)
 {
   mlsize_t temp;
@@ -33,6 +33,7 @@ CAMLexport mlsize_t caml_string_length(value s)
   return temp - Byte (s, temp);
 }
 
+/* returns a value that represents a number of bytes (chars) */
 CAMLprim value caml_ml_string_length(value s)
 {
   mlsize_t temp;
@@ -41,6 +42,12 @@ CAMLprim value caml_ml_string_length(value s)
   return Val_long(temp - Byte (s, temp));
 }
 
+CAMLexport int caml_string_is_c_safe (value s)
+{
+  return strlen(String_val(s)) == caml_string_length(s);
+}
+
+/* [len] is a value that represents a number of bytes (chars) */
 CAMLprim value caml_create_string(value len)
 {
   mlsize_t size = Long_val(len);
@@ -101,7 +108,7 @@ CAMLprim value caml_string_get32(value str, value index)
 
 CAMLprim value caml_string_get64(value str, value index)
 {
-  uint64 res;
+  uint64_t res;
   unsigned char b1, b2, b3, b4, b5, b6, b7, b8;
   intnat idx = Long_val(index);
   if (idx < 0 || idx + 7 >= caml_string_length(str)) caml_array_bound_error();
@@ -114,15 +121,15 @@ CAMLprim value caml_string_get64(value str, value index)
   b7 = Byte_u(str, idx + 6);
   b8 = Byte_u(str, idx + 7);
 #ifdef ARCH_BIG_ENDIAN
-  res = (uint64) b1 << 56 | (uint64) b2 << 48
-        | (uint64) b3 << 40 | (uint64) b4 << 32
-        | (uint64) b5 << 24 | (uint64) b6 << 16
-        | (uint64) b7 << 8 | (uint64) b8;
+  res = (uint64_t) b1 << 56 | (uint64_t) b2 << 48
+        | (uint64_t) b3 << 40 | (uint64_t) b4 << 32
+        | (uint64_t) b5 << 24 | (uint64_t) b6 << 16
+        | (uint64_t) b7 << 8 | (uint64_t) b8;
 #else
-  res = (uint64) b8 << 56 | (uint64) b7 << 48
-        | (uint64) b6 << 40 | (uint64) b5 << 32
-        | (uint64) b4 << 24 | (uint64) b3 << 16
-        | (uint64) b2 << 8 | (uint64) b1;
+  res = (uint64_t) b8 << 56 | (uint64_t) b7 << 48
+        | (uint64_t) b6 << 40 | (uint64_t) b5 << 32
+        | (uint64_t) b4 << 24 | (uint64_t) b3 << 16
+        | (uint64_t) b2 << 8 | (uint64_t) b1;
 #endif
   return caml_copy_int64(res);
 }
@@ -174,7 +181,7 @@ CAMLprim value caml_string_set32(value str, value index, value newval)
 CAMLprim value caml_string_set64(value str, value index, value newval)
 {
   unsigned char b1, b2, b3, b4, b5, b6, b7, b8;
-  int64 val;
+  int64_t val;
   intnat idx = Long_val(index);
   if (idx < 0 || idx + 7 >= caml_string_length(str)) caml_array_bound_error();
   val = Int64_val(newval);
@@ -266,7 +273,7 @@ CAMLprim value caml_string_greaterequal(value s1, value s2)
 CAMLprim value caml_blit_string(value s1, value ofs1, value s2, value ofs2,
                                 value n)
 {
-  memmove(&Byte(s2, Long_val(ofs2)), &Byte(s1, Long_val(ofs1)), Int_val(n));
+  memmove(&Byte(s2, Long_val(ofs2)), &Byte(s1, Long_val(ofs1)), Long_val(n));
   return Val_unit;
 }
 
@@ -276,24 +283,9 @@ CAMLprim value caml_fill_string(value s, value offset, value len, value init)
   return Val_unit;
 }
 
-CAMLprim value caml_is_printable(value chr)
-{
-  int c;
-
-#ifdef HAS_LOCALE
-  static int locale_is_set = 0;
-  if (! locale_is_set) {
-    setlocale(LC_CTYPE, "");
-    locale_is_set = 1;
-  }
-#endif
-  c = Int_val(chr);
-  return Val_bool(isprint(c));
-}
-
 CAMLprim value caml_bitvect_test(value bv, value n)
 {
-  int pos = Int_val(n);
+  intnat pos = Long_val(n);
   return Val_int(Byte_u(bv, pos >> 3) & (1 << (pos & 7)));
 }
 
@@ -304,7 +296,7 @@ CAMLexport value caml_alloc_sprintf(const char * format, ...)
   int n;
   value res;
 
-#ifndef _WIN32
+#if !defined(_WIN32) || defined(_UCRT)
   /* C99-compliant implementation */
   va_start(args, format);
   /* "vsnprintf(dest, sz, format, args)" writes at most "sz" characters

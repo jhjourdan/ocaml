@@ -1,15 +1,17 @@
-/***********************************************************************/
-/*                                                                     */
-/*                                OCaml                                */
-/*                                                                     */
-/*         Xavier Leroy and Damien Doligez, INRIA Rocquencourt         */
-/*                                                                     */
-/*  Copyright 1996 Institut National de Recherche en Informatique et   */
-/*  en Automatique.  All rights reserved.  This file is distributed    */
-/*  under the terms of the GNU Library General Public License, with    */
-/*  the special exception on linking described in file ../LICENSE.     */
-/*                                                                     */
-/***********************************************************************/
+/**************************************************************************/
+/*                                                                        */
+/*                                 OCaml                                  */
+/*                                                                        */
+/*          Xavier Leroy and Damien Doligez, INRIA Rocquencourt           */
+/*                                                                        */
+/*   Copyright 1996 Institut National de Recherche en Informatique et     */
+/*     en Automatique.                                                    */
+/*                                                                        */
+/*   All rights reserved.  This file is distributed under the terms of    */
+/*   the GNU Lesser General Public License version 2.1, with the          */
+/*   special exception on linking described in the file LICENSE.          */
+/*                                                                        */
+/**************************************************************************/
 
 /* Start-up code */
 
@@ -51,6 +53,7 @@
 #include "caml/stacks.h"
 #include "caml/sys.h"
 #include "caml/startup.h"
+#include "caml/startup_aux.h"
 #include "caml/version.h"
 
 #ifndef O_BINARY
@@ -61,25 +64,9 @@
 #define SEEK_END 2
 #endif
 
-extern int caml_parser_trace;
-
-CAMLexport header_t caml_atom_table[256];
-
-/* Initialize the atom table */
-
-static void init_atoms(void)
-{
-  int i;
-  for(i = 0; i < 256; i++) caml_atom_table[i] = Make_header(0, i, Caml_white);
-  if (caml_page_table_add(In_static_data,
-                          caml_atom_table, caml_atom_table + 256) != 0) {
-    caml_fatal_error("Fatal error: not enough memory for initial page table");
-  }
-}
-
 /* Read the trailer of a bytecode file */
 
-static void fixup_endianness_trailer(uint32 * p)
+static void fixup_endianness_trailer(uint32_t * p)
 {
 #ifndef ARCH_BIG_ENDIAN
   Reverse_32(p, p);
@@ -153,7 +140,8 @@ void caml_read_section_descriptors(int fd, struct exec_trailer *trail)
    Return the length of the section data in bytes, or -1 if no section
    found with that name. */
 
-int32 caml_seek_optional_section(int fd, struct exec_trailer *trail, char *name)
+int32_t caml_seek_optional_section(int fd, struct exec_trailer *trail,
+                                   char *name)
 {
   long ofs;
   int i;
@@ -172,9 +160,9 @@ int32 caml_seek_optional_section(int fd, struct exec_trailer *trail, char *name)
 /* Position fd at the beginning of the section having the given name.
    Return the length of the section data in bytes. */
 
-int32 caml_seek_section(int fd, struct exec_trailer *trail, char *name)
+int32_t caml_seek_section(int fd, struct exec_trailer *trail, char *name)
 {
-  int32 len = caml_seek_optional_section(fd, trail, name);
+  int32_t len = caml_seek_optional_section(fd, trail, name);
   if (len == -1)
     caml_fatal_error_arg("Fatal_error: section `%s' is missing\n", name);
   return len;
@@ -185,7 +173,7 @@ int32 caml_seek_section(int fd, struct exec_trailer *trail, char *name)
 
 static char * read_section(int fd, struct exec_trailer *trail, char *name)
 {
-  int32 len;
+  int32_t len;
   char * data;
 
   len = caml_seek_optional_section(fd, trail, name);
@@ -222,15 +210,6 @@ Algorithm:
 
 */
 
-/* Configuration parameters and flags */
-
-static uintnat percent_free_init = Percent_free_def;
-static uintnat max_percent_free_init = Max_percent_free_def;
-static uintnat minor_heap_init = Minor_heap_def;
-static uintnat heap_chunk_init = Heap_chunk_def;
-static uintnat heap_size_init = Init_heap_def;
-static uintnat max_stack_init = Max_stack_def;
-
 /* Parse options on the command line */
 
 static int parse_command_line(char **argv)
@@ -239,11 +218,9 @@ static int parse_command_line(char **argv)
 
   for(i = 1; argv[i] != NULL && argv[i][0] == '-'; i++) {
     switch(argv[i][1]) {
-#ifdef DEBUG
     case 't':
-      caml_trace_flag++;
+      ++ caml_trace_level; /* ignored unless DEBUG mode */
       break;
-#endif
     case 'v':
       if (!strcmp (argv[i], "-version")){
         printf ("The OCaml runtime, version " OCAML_VERSION_STRING "\n");
@@ -274,57 +251,6 @@ static int parse_command_line(char **argv)
     }
   }
   return i;
-}
-
-/* Parse the OCAMLRUNPARAM variable */
-/* The option letter for each runtime option is the first letter of the
-   last word of the ML name of the option (see [stdlib/gc.mli]).
-   Except for l (maximum stack size) and h (initial heap size).
-*/
-
-/* If you change these functions, see also their copy in asmrun/startup.c */
-
-static void scanmult (char *opt, uintnat *var)
-{
-  char mult = ' ';
-  unsigned int val;
-  sscanf (opt, "=%u%c", &val, &mult);
-  sscanf (opt, "=0x%x%c", &val, &mult);
-  switch (mult) {
-  case 'k':   *var = (uintnat) val * 1024; break;
-  case 'M':   *var = (uintnat) val * 1024 * 1024; break;
-  case 'G':   *var = (uintnat) val * 1024 * 1024 * 1024; break;
-  default:    *var = (uintnat) val; break;
-  }
-}
-
-static void parse_camlrunparam(void)
-{
-  char *opt = getenv ("OCAMLRUNPARAM");
-  uintnat p;
-
-  if (opt == NULL) opt = getenv ("CAMLRUNPARAM");
-
-  if (opt != NULL){
-    while (*opt != '\0'){
-      switch (*opt++){
-      case 'a': scanmult (opt, &p); caml_set_allocation_policy (p); break;
-      case 'b': caml_record_backtrace(Val_true); break;
-      case 'h': scanmult (opt, &heap_size_init); break;
-      case 'i': scanmult (opt, &heap_chunk_init); break;
-      case 'l': scanmult (opt, &max_stack_init); break;
-      case 'o': scanmult (opt, &percent_free_init); break;
-      case 'O': scanmult (opt, &max_percent_free_init); break;
-      case 'p': caml_parser_trace = 1; break;
-      /* case 'R': see stdlib/hashtbl.mli */
-      case 's': scanmult (opt, &minor_heap_init); break;
-#ifdef DEBUG
-      case 't': caml_trace_flag = 1; break;
-#endif
-      case 'v': scanmult (opt, &caml_verb_gc); break;
-      }
-    }
-  }
 }
 
 extern void caml_init_ieee_floats (void);
@@ -363,9 +289,13 @@ CAMLexport void caml_main(char **argv)
   caml_external_raise = NULL;
   /* Determine options and position of bytecode file */
 #ifdef DEBUG
-  caml_verb_gc = 0xBF;
+  caml_verb_gc = 0x3F;
 #endif
-  parse_camlrunparam();
+  caml_parse_ocamlrunparam();
+#ifdef DEBUG
+  caml_gc_message (-1, "### OCaml runtime: debug mode ###\n", 0);
+#endif
+
   pos = 0;
 
   /* First, try argv[0] (when ocamlrun is called by a bytecode program) */
@@ -400,10 +330,12 @@ CAMLexport void caml_main(char **argv)
   /* Read the table of contents (section descriptors) */
   caml_read_section_descriptors(fd, &trail);
   /* Initialize the abstract machine */
-  caml_init_gc (minor_heap_init, heap_size_init, heap_chunk_init,
-                percent_free_init, max_percent_free_init);
-  caml_init_stack (max_stack_init);
-  init_atoms();
+  caml_init_gc (caml_init_minor_heap_wsz, caml_init_heap_wsz,
+                caml_init_heap_chunk_sz, caml_init_percent_free,
+                caml_init_max_percent_free, caml_init_major_window);
+  caml_init_stack (caml_init_max_stack_wsz);
+  caml_init_atom_table();
+  caml_init_backtrace();
   /* Initialize the interpreter */
   caml_interprete(NULL, 0);
   /* Initialize the debugger, if needed */
@@ -411,6 +343,7 @@ CAMLexport void caml_main(char **argv)
   /* Load the code */
   caml_code_size = caml_seek_section(fd, &trail, "CODE");
   caml_load_code(fd, caml_code_size);
+  caml_init_debug_info();
   /* Build the table of primitives */
   shared_lib_path = read_section(fd, &trail, "DLPT");
   shared_libs = read_section(fd, &trail, "DLLS");
@@ -475,16 +408,18 @@ CAMLexport void caml_startup_code(
   if (cds_file != NULL) {
     caml_cds_file = caml_strdup(cds_file);
   }
-  parse_camlrunparam();
+  caml_parse_ocamlrunparam();
   exe_name = argv[0];
   if (caml_executable_name(proc_self_exe, sizeof(proc_self_exe)) == 0)
     exe_name = proc_self_exe;
   caml_external_raise = NULL;
   /* Initialize the abstract machine */
-  caml_init_gc (minor_heap_init, heap_size_init, heap_chunk_init,
-                percent_free_init, max_percent_free_init);
-  caml_init_stack (max_stack_init);
-  init_atoms();
+  caml_init_gc (caml_init_minor_heap_wsz, caml_init_heap_wsz,
+                caml_init_heap_chunk_sz, caml_init_percent_free,
+                caml_init_max_percent_free, caml_init_major_window);
+  caml_init_stack (caml_init_max_stack_wsz);
+  caml_init_atom_table();
+  caml_init_backtrace();
   /* Initialize the interpreter */
   caml_interprete(NULL, 0);
   /* Initialize the debugger, if needed */
@@ -493,6 +428,7 @@ CAMLexport void caml_startup_code(
   caml_start_code = code;
   caml_code_size = code_size;
   caml_init_code_fragments();
+  caml_init_debug_info();
   if (caml_debugger_in_use) {
     int len, i;
     len = code_size / sizeof(opcode_t);

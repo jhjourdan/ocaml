@@ -1,15 +1,17 @@
-/***********************************************************************/
-/*                                                                     */
-/*                                OCaml                                */
-/*                                                                     */
-/*         Xavier Leroy and Damien Doligez, INRIA Rocquencourt         */
-/*                                                                     */
-/*  Copyright 2009 Institut National de Recherche en Informatique et   */
-/*  en Automatique.  All rights reserved.  This file is distributed    */
-/*  under the terms of the GNU Library General Public License, with    */
-/*  the special exception on linking described in file ../../LICENSE.  */
-/*                                                                     */
-/***********************************************************************/
+/**************************************************************************/
+/*                                                                        */
+/*                                 OCaml                                  */
+/*                                                                        */
+/*          Xavier Leroy and Damien Doligez, INRIA Rocquencourt           */
+/*                                                                        */
+/*   Copyright 2009 Institut National de Recherche en Informatique et     */
+/*     en Automatique.                                                    */
+/*                                                                        */
+/*   All rights reserved.  This file is distributed under the terms of    */
+/*   the GNU Lesser General Public License version 2.1, with the          */
+/*   special exception on linking described in the file LICENSE.          */
+/*                                                                        */
+/**************************************************************************/
 
 /* POSIX thread implementation of the "st" interface */
 
@@ -78,14 +80,10 @@ static void st_thread_exit(void)
   pthread_exit(NULL);
 }
 
-static void st_thread_kill(st_thread_id thr)
+static void st_thread_join(st_thread_id thr)
 {
-#if !defined(__ANDROID__)
-  /* pthread_cancel is unsafe, as it does not allow the thread an opportunity
-     to free shared resources such as mutexes. Thus, it is not implemented
-     in Android's libc. */
-  pthread_cancel(thr);
-#endif
+  pthread_join(thr, NULL);
+  /* best effort: ignore errors */
 }
 
 /* Scheduling hints */
@@ -317,6 +315,9 @@ static void st_check_error(int retcode, char * msg)
   raise_sys_error(str);
 }
 
+/* Variable used to stop the "tick" thread */
+static volatile int caml_tick_thread_stop = 0;
+
 /* The tick thread: posts a SIGPREEMPTION signal periodically */
 
 static void * caml_thread_tick(void * arg)
@@ -327,11 +328,7 @@ static void * caml_thread_tick(void * arg)
   /* Block all signals so that we don't try to execute an OCaml signal handler*/
   sigfillset(&mask);
   pthread_sigmask(SIG_BLOCK, &mask, NULL);
-#if !defined(__ANDROID__)
-  /* Allow async cancellation */
-  pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-#endif
-  while(1) {
+  while(! caml_tick_thread_stop) {
     /* select() seems to be the most efficient way to suspend the
        thread for sub-second intervals */
     timeout.tv_sec = 0;
@@ -342,7 +339,7 @@ static void * caml_thread_tick(void * arg)
      caml_record_signal(). */
     caml_record_signal(SIGPREEMPTION);
   }
-  return NULL;                  /* prevents compiler warning */
+  return NULL;
 }
 
 /* "At fork" processing */
@@ -353,7 +350,8 @@ static void * caml_thread_tick(void * arg)
    The reason for the omission is that Android (GUI) applications
    are not supposed to fork at all, however this workaround is still
    included in case OCaml is used for an Android CLI utility. */
-int pthread_atfork(void (*prepare)(void), void (*parent)(void), void (*child)(void));
+int pthread_atfork(void (*prepare)(void), void (*parent)(void),
+                   void (*child)(void));
 #endif
 
 static int st_atfork(void (*fn)(void))

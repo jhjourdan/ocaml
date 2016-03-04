@@ -1,15 +1,17 @@
-/***********************************************************************/
-/*                                                                     */
-/*                                OCaml                                */
-/*                                                                     */
-/*           Xavier Leroy, projet Cristal, INRIA Rocquencourt          */
-/*                                                                     */
-/*  Copyright 2001 Institut National de Recherche en Informatique et   */
-/*  en Automatique.  All rights reserved.  This file is distributed    */
-/*  under the terms of the GNU Library General Public License, with    */
-/*  the special exception on linking described in file ../LICENSE.     */
-/*                                                                     */
-/***********************************************************************/
+/**************************************************************************/
+/*                                                                        */
+/*                                 OCaml                                  */
+/*                                                                        */
+/*            Xavier Leroy, projet Cristal, INRIA Rocquencourt            */
+/*                                                                        */
+/*   Copyright 2001 Institut National de Recherche en Informatique et     */
+/*     en Automatique.                                                    */
+/*                                                                        */
+/*   All rights reserved.  This file is distributed under the terms of    */
+/*   the GNU Lesser General Public License version 2.1, with the          */
+/*   special exception on linking described in the file LICENSE.          */
+/*                                                                        */
+/**************************************************************************/
 
 /* Registration of global memory roots */
 
@@ -43,11 +45,11 @@ struct global_root_list {
    (i.e. 2 * (NUM_LEVELS - 1)).  Moreover, the congruential PRNG
    is faster and guaranteed to be deterministic (to reproduce bugs). */
 
-static uint32 random_seed = 0;
+static uint32_t random_seed = 0;
 
 static int random_level(void)
 {
-  uint32 r;
+  uint32_t r;
   int level = 0;
 
   /* Linear congruence with modulus = 2^32, multiplier = 69069
@@ -69,6 +71,8 @@ static void caml_insert_global_root(struct global_root_list * rootlist,
   struct global_root * update[NUM_LEVELS];
   struct global_root * e, * f;
   int i, new_level;
+
+  Assert(0 <= rootlist->level && rootlist->level < NUM_LEVELS);
 
   /* Init "cursor" to list head */
   e = (struct global_root *) rootlist;
@@ -108,6 +112,8 @@ static void caml_delete_global_root(struct global_root_list * rootlist,
   struct global_root * update[NUM_LEVELS];
   struct global_root * e, * f;
   int i;
+
+  Assert(0 <= rootlist->level && rootlist->level < NUM_LEVELS);
 
   /* Init "cursor" to list head */
   e = (struct global_root *) rootlist;
@@ -154,6 +160,8 @@ static void caml_empty_global_roots(struct global_root_list * rootlist)
 {
   struct global_root * gr, * next;
   int i;
+
+  Assert(0 <= rootlist->level && rootlist->level < NUM_LEVELS);
 
   for (gr = rootlist->forward[0]; gr != NULL; /**/) {
     next = gr->forward[0];
