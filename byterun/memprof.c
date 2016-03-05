@@ -37,15 +37,43 @@ struct tracked_block* tracked_blocks = NULL;
 uintnat tracked_blocks_end = 0;
 static uintnat size = 0, old = 0;
 
-static float log_tbl[64];
+/* Taken from :
+   https://github.com/jhjourdan/SIMD-math-prims
+*/
+inline float logapprox(float val) {
+  union { float f; int i; } valu;
+  float exp, addcst, x;
+  valu.f = val;
+  exp = valu.i >> 23;
+  addcst = val > 0 ? -89.970756366f : -(float)INFINITY;
+  valu.i = (valu.i & 0x7FFFFF) | 0x3F800000;
+  x = valu.f;
 
-static double fast_log(float v) {
-  int32_t iv = *(int32_t*)&v;
-  int32_t exp = ((iv >> 23) & 255) - 127;
-  int32_t idx = iv & 0x7E0000;
-  double corr = 1. * (0x1FFFF & iv) / (idx + 0x800000);
+  return
+    x * (3.529304993f + x * (-2.461222105f +
+      x * (1.130626167f + x * (-0.288739945f +
+        x * 3.110401639e-2f))))
+    + (addcst + 0.69314718055995f*exp);
+}
 
-  return ((double)exp + log_tbl[idx >> 17]) * 0.69314718055994530941 + corr;
+inline float expapprox(float val) {
+  union { int i; float f; } xu, xu2;
+  float val2, val3, val4, b;
+  int val4i;
+  val2 = 12102203.1615614f*val+1065353216.f;
+  val3 = val2 < 2139095040.f ? val2 : 2139095040.f;
+  val4 = val3 > 0.f ? val3 : 0.f;
+  val4i = (int) val4;
+  xu.i = val4i & 0x7F800000;
+  xu2.i = (val4i & 0x7FFFFF) | 0x3F800000;
+  b = xu2.f;
+
+  return
+    xu.f * (0.510397365625862338668154f + b *
+            (0.310670891004095530771135f + b *
+             (0.168143436463395944830000f + b *
+              (-2.88093587581985443087955e-3f + b *
+               1.3671023382430374383648148e-2f))));
 }
 
 static double mt_generate_uniform(void) {
@@ -84,7 +112,7 @@ static double mt_generate_exponential() {
   if(lambda == 0)
     return INFINITY;
 
-  double res = -fast_log(mt_generate_uniform()) * lambda_rec;
+  double res = -logapprox(mt_generate_uniform()) * lambda_rec;
   if(res < 0) return 0;
   return res;
 }
@@ -100,7 +128,7 @@ static uint32_t mt_generate_poisson(double lambda) {
     double p;
     uint32_t k;
     k = 0;
-    p = expf(lambda);
+    p = expapprox(lambda);
     do {
       k++;
       p *= mt_generate_uniform();
@@ -109,21 +137,21 @@ static uint32_t mt_generate_poisson(double lambda) {
   } else {
     double c, beta, alpha, k;
     c = 0.767 - 3.36/lambda;
-    beta = M_PI/sqrt(3.*lambda);
+    beta = 1./sqrt((3./(M_PI*M_PI))*lambda);
     alpha = beta*lambda;
-    k = fast_log(c) - lambda - fast_log(beta);
+    k = logapprox(c) - lambda - logapprox(beta);
     while(1) {
       double u, x, n, v, y, y2;
       u = mt_generate_uniform();
-      x = (alpha - fast_log((1.0 - u)/u))/beta;
+      x = (alpha - logapprox((1.0 - u)/u))/beta;
       n = floor(x + 0.5);
       if(n < 0.)
         continue;
 
       v = mt_generate_uniform();
       y = alpha - beta*x;
-      y2 = 1. + expf(y);
-      if(y + fast_log(v/(y2*y2)) < k + n*fast_log(lambda) - lgammaf(n+1))
+      y2 = 1. + expapprox(y);
+      if(y + logapprox(v/(y2*y2)) < k + n*logapprox(lambda) - lgammaf(n+1))
         return n > ((1<<30)-2) ? ((1<<30)-2) : n;
     }
   }
@@ -163,10 +191,6 @@ void caml_memprof_reinit(void) {
       caml_fatal_error("out of memory");
     size = 1024;
   }
-
-  for(i = 0; i < 64; ++i)
-    log_tbl[i] =
-      (log(1. + (2*i+1) / 128.) - 1. / (2*i + 128)) / log(2.);
 
   renew_sample();
 }
