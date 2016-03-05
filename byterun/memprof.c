@@ -457,7 +457,7 @@ void caml_memprof_call_gc_end(double rest) {
 }
 #endif
 
-void caml_memprof_clean() {
+static void caml_memprof_clean() {
   uintnat i, j;
 
   for(i = j = old; i < tracked_blocks_end; i++) {
@@ -525,24 +525,24 @@ void caml_memprof_do_young_roots(scanning_action f) {
 void caml_memprof_major_gc_update(void) {
   uintnat i, j;
 
-  Assert(old == tracked_blocks_end);
-
   j = 0;
-  for(i = 0; i < tracked_blocks_end; i++) {
+  for(i = 0; i < old; i++) {
     Assert(Is_in_heap(tracked_blocks[i].block));
     if(!Is_white_val(tracked_blocks[i].block))
       tracked_blocks[j++] = tracked_blocks[i];
   }
-
-  old = tracked_blocks_end = j;
+  old = j;
+  for(; i < tracked_blocks_end; i++)
+    if(Is_young(tracked_blocks[i].block) ||
+       !Is_white_val(tracked_blocks[i].block))
+      tracked_blocks[j++] = tracked_blocks[i];
+  tracked_blocks_end = j;
 
   shrink();
 }
 
 void caml_memprof_do_strong_roots(scanning_action f) {
   uintnat i;
-
-  Assert(old == tracked_blocks_end);
 
   for(i = 0; i < tracked_blocks_end; i++) {
     value* r = &tracked_blocks[i].callstack;
