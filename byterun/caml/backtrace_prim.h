@@ -64,4 +64,6 @@ value caml_val_raw_backtrace_slot(backtrace_slot pc);
  * explicitly.
  */
 
+value caml_get_current_callstack(value);
+
 #endif /* CAML_BACKTRACE_PRIM_H */

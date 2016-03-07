@@ -1,41 +1,27 @@
 #include <math.h>
 #include <string.h>
 #include "caml/memprof.h"
-#include "caml/backtrace.h"
-#include "caml/signals.h"
-#include "caml/stacks.h"
+#include "caml/backtrace_prim.h"
 #include "caml/fail.h"
-#include "caml/memory.h"
 #include "caml/alloc.h"
-#include "caml/hash.h"
 #include "caml/callback.h"
+#include "caml/weak.h"
 #ifdef NATIVE_CODE
 #include "stack.h"
 #endif
 
 static uint32_t mt_state[624];
 static uint32_t mt_index;
+static int mt_init = 0;
 
 /* [lambda] is the mean number of samples for each allocated word (including
    block headers. */
 static double lambda = 0;
 static double lambda_rec = INFINITY;
+static intnat callstack_size = 0;
 
 static double next_sample_young;
 value* caml_memprof_young_limit;
-
-struct tracked_block {
-  value block;
-#ifdef NATIVE_CODE
-  uint32_t alloc_frame_pos;
-#endif
-  uint32_t occurences;
-  value callstack;
-};
-
-struct tracked_block* tracked_blocks = NULL;
-uintnat tracked_blocks_end = 0;
-static uintnat size = 0, old = 0;
 
 /* Taken from :
    https://github.com/jhjourdan/SIMD-math-prims
@@ -151,6 +137,7 @@ static uint32_t mt_generate_poisson(double lambda) {
       v = mt_generate_uniform();
       y = alpha - beta*x;
       y2 = 1. + expapprox(y);
+
       if(y + logapprox(v/(y2*y2)) < k + n*logapprox(lambda) - lgammaf(n+1))
         return n > ((1<<30)-2) ? ((1<<30)-2) : n;
     }
@@ -164,9 +151,7 @@ static void update_limit(void) {
   else
     caml_memprof_young_limit = caml_young_alloc_end - (uintnat)next_sample_young;
 
-  caml_young_limit =
-    caml_memprof_young_limit < caml_young_limit ?
-    caml_young_limit : caml_memprof_young_limit;
+  caml_update_young_limit();
 }
 
 static void renew_sample(void) {
@@ -179,53 +164,40 @@ static void renew_sample(void) {
 void caml_memprof_reinit(void) {
   int i;
 
-  if(tracked_blocks == NULL) {
+  if(!mt_init) {
     mt_index = 624;
     mt_state[0] = 42;
     for(i = 1; i < 624; i++)
       mt_state[i] = 0x6c078965 * (mt_state[i-1] ^ (mt_state[i-1] >> 30)) + i;
-
-    tracked_blocks =
-      (struct tracked_block*)malloc(1024 * sizeof(struct tracked_block));
-    if(tracked_blocks == NULL)
-      caml_fatal_error("out of memory");
-    size = 1024;
   }
 
   renew_sample();
 }
 
-static void push(const struct tracked_block* blk) {
-  if(tracked_blocks_end >= size) {
-    struct tracked_block* p =
-      (struct tracked_block*)realloc(tracked_blocks,
-        size * 2 * sizeof(struct tracked_block));
-
-    if(p == NULL)
-      return;
-
-    tracked_blocks = p;
-
-    size *= 2;
-  }
-
-  Assert(tracked_blocks_end < size);
-  Assert(Is_in_heap_or_young(blk->block));
-  tracked_blocks[tracked_blocks_end++] = *blk;
+void set_lambda(double l) {
+  lambda = l;
+  lambda_rec = l == 0 ? INFINITY : 1/l;
+  renew_sample();
 }
 
-static void shrink(void) {
-  uintnat newsize = size;
-  while(newsize >= 2048 && tracked_blocks_end * 8 < newsize)
-    newsize /= 2;
-  if(newsize != size) {
-    struct tracked_block* p = (struct tracked_block*)realloc(tracked_blocks,
-                                        newsize * sizeof(struct tracked_block));
-    if(p != NULL) {
-      tracked_blocks = p;
-      size = newsize;
-    }
-  }
+CAMLprim value caml_memprof_set(value v) {
+  CAMLparam1(v);
+  double l = Double_val(Field(v, 0));
+  intnat sz = Long_val(Field(v, 1));
+  if(sz < 0 || !(l >= 0.) || l > 1.)
+    caml_failwith("caml_memprof_set");
+  set_lambda(l);
+  callstack_size = sz;
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value caml_memprof_get(value v) {
+  CAMLparam1(v);
+  CAMLlocal1(res);
+  res = caml_alloc_small(2, 0);
+  Field(res, 0) = caml_copy_double(lambda);
+  Field(res, 1) = Val_long(callstack_size);
+  CAMLreturn(res);
 }
 
 static value memprof_callback;
@@ -237,25 +209,37 @@ CAMLprim value caml_memprof_register_callback(value callback) {
   CAMLreturn(Val_unit);
 }
 
-void caml_memprof_track_young(uintnat wosize) {
-  uintnat whsize = Whsize_wosize(wosize);
+static value capture_callstack() {
   CAMLparam0();
-  CAMLlocal1(callstack);
+  CAMLlocal1(res);
+  res = caml_get_current_callstack(Val_long(callstack_size));
+  CAMLreturn(res);
+}
+
+static value do_callback(uintnat wosize, uintnat occurences, value callstack) {
+  CAMLparam1(callstack);
+  double old_lambda = lambda;
+  set_lambda(0);
+  value res = caml_callback3_exn(memprof_callback, Val_long(wosize),
+                                 Val_long(occurences), callstack);
+  set_lambda(old_lambda);
+  CAMLreturn(res);
+}
+
+void caml_memprof_track_young(uintnat wosize) {
+  CAMLparam0();
+  CAMLlocal2(ephe, callstack);
+  uintnat whsize = Whsize_wosize(wosize);
   double rest = caml_young_alloc_end - caml_young_ptr - next_sample_young;
-  struct tracked_block blk;
 
   Assert(rest > 0);
 
   caml_young_ptr += whsize;
 
-  renew_sample();
-
-#ifdef NATIVE_CODE
-  blk.alloc_frame_pos = 0;
-#endif
-
-  callstack = caml_callback(memprof_callback, Val_unit);
-  blk.occurences = mt_generate_poisson(rest*lambda) + 1;
+  long occurences = mt_generate_poisson(rest*lambda) + 1;
+  callstack = capture_callstack();
+  ephe = do_callback(wosize, occurences, callstack);
+  if (Is_exception_result(ephe)) caml_raise(Extract_exception(ephe));
 
   if(caml_young_ptr - whsize < caml_young_trigger)
     caml_gc_dispatch();
@@ -264,38 +248,30 @@ void caml_memprof_track_young(uintnat wosize) {
   next_sample_young += whsize;
   update_limit();
 
-  blk.block = Val_hp(caml_young_ptr);
-  blk.callstack = callstack;
-  push(&blk);
+  caml_ephe_set_key(ephe, Val_long(0), Val_hp(caml_young_ptr));
 
   CAMLreturn0;
 }
 
 value caml_memprof_track_alloc_shr(value block) {
   CAMLparam1(block);
-  CAMLreturn (block);
+  CAMLlocal2(ephe, callstack);
 
   Assert(Is_in_heap(block));
 
   uint32_t occurences = mt_generate_poisson(lambda * Whsize_val(block));
   if(occurences > 0) {
-    struct tracked_block blk;
     // We temporarily change the tag of the newly allocated  block to
     // Abstract_tag, because we may trigger the GC and we want to avoid
     // scanning this uninitialized block.
     tag_t oldtag = Tag_val(block);
     Tag_val(block) = Abstract_tag;
-
-#ifdef NATIVE_CODE
-    blk.alloc_frame_pos = 0;
-#endif
-
-    blk.occurences = occurences;
-    blk.block = block;
-
-    blk.callstack = caml_callback(memprof_callback, Val_unit);
-    push(&blk);
+    callstack = capture_callstack();
+    ephe = do_callback(Wosize_val(block), occurences, callstack);
+    if (Is_exception_result(ephe)) caml_raise(Extract_exception(ephe));
     Tag_val(block) = oldtag;
+
+    caml_ephe_set_key(ephe, Val_long(0), block);
   }
 
   CAMLreturn (block);
@@ -303,13 +279,12 @@ value caml_memprof_track_alloc_shr(value block) {
 
 void caml_memprof_track_interned(header_t* block, header_t* blockend) {
   CAMLparam0();
-  CAMLlocal1(root);
-  struct tracked_block blk;
+  CAMLlocal2(ephe, callstack);
 
   value* sampled = NULL;
-  double* rests = NULL;
-
+  uintnat* occurences = NULL;
   uintnat sz = 0;
+
   uintnat j = 0, i;
   header_t* p = block;
 
@@ -333,30 +308,34 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
       sampled = (value*)malloc(sizeof(value) * sz);
       if(sampled == NULL)
         CAMLreturn0;
-      rests = (double*)malloc(sizeof(double) * sz);
-      if(rests == NULL) {
+      occurences = (uintnat*)malloc(sizeof(uintnat) * sz);
+      if(occurences == NULL) {
         free(sampled);
         CAMLreturn0;
       }
     } else if(j >= sz) {
       value* newsampled;
-      double* newrests;
+      uintnat* newoccurences;
       sz *= 2;
       newsampled = (value*)realloc(sampled, sizeof(value) * sz);
-      newrests = (double*)realloc(rests, sizeof(double) * sz);
-      if(newsampled == NULL || newrests == NULL) {
-        free(sampled);
-        free(rests);
+      if(newsampled == NULL) {
+        free(sampled); free(occurences);
         CAMLreturn0;
       }
       sampled = newsampled;
-      rests = newrests;
+      newoccurences = (uintnat*)realloc(occurences, sizeof(uintnat) * sz);
+      if(newoccurences == NULL) {
+        free(sampled); free(occurences);
+        CAMLreturn0;
+      }
+      occurences = newoccurences;
     }
     Assert (j < sz);
 
     sampled[j] = Val_hp(p);
-    rests[j] = (p + Whsize_hp(p) - p0) - next_sample;
-    Assert(rests[j] > 0);
+    double rest = (p + Whsize_hp(p) - p0) - next_sample;
+    Assert(rest > 0);
+    occurences[j] = mt_generate_poisson(rest*lambda) + 1;
     j++;
 
     p += Whsize_hp(p);
@@ -367,27 +346,19 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
 
   CAMLxparamN(sampled, j);
 
-#ifdef NATIVE_CODE
-  blk.alloc_frame_pos = 0;
-#endif
-
-  /* Note : blk.callstack is not registered as a root, so we must take care
-     not to call the GC before everything is pushed */
-  blk.callstack = caml_callback_exn(memprof_callback, Val_unit);
-  if (Is_exception_result(blk.callstack)) {
-    free(sampled);
-    free(rests);
-    caml_raise(Extract_exception(blk.callstack));
-  }
-
+  callstack = capture_callstack();
   for(i = 0; i < j; i++) {
-    blk.occurences = mt_generate_poisson(rests[i]*lambda) + 1;
-    blk.block = sampled[i];
-    push(&blk);
+    ephe = do_callback(Wosize_val(sampled[i]), occurences[i], callstack);
+    if (Is_exception_result(ephe)) {
+      free(sampled);
+      free(occurences);
+      caml_raise(Extract_exception(ephe));
+    }
+    caml_ephe_set_key(ephe, Val_long(0), sampled[i]);
   }
 
   free(sampled);
-  free(rests);
+  free(occurences);
   CAMLreturn0;
 }
 
@@ -407,21 +378,20 @@ void caml_memprof_call_gc_end(double rest) {
   char * sp = caml_bottom_of_stack;
   frame_descr * d;
   uintnat infoptr;
-  uintnat i;
+  uintnat i, j;
   uintnat tot_whsize;
   unsigned short num_blocks;
   unsigned short* block_sizes;
   CAMLparam0();
-  CAMLlocal1(callstack);
+  CAMLlocal3(callstack, callstack_cur, tmp);
 
   Assert(rest >= 0);
 
   if(lambda == 0)
     CAMLreturn0;
+
   d = caml_next_frame_descriptor(&pc, &sp);
-  /* Should not happen, except on sparc */
-  if(d == NULL || (d->frame_size & 2) != 2)
-    CAMLreturn0;
+  Assert(d != NULL && (d->frame_size & 2) == 2);
   infoptr = ((uintnat) d +
              sizeof(char *) + sizeof(short) + sizeof(short) +
              sizeof(short) * d->num_live + sizeof(frame_descr *) - 1)
@@ -437,43 +407,82 @@ void caml_memprof_call_gc_end(double rest) {
   if(rest > 0) {
     double next_sample = tot_whsize - rest;
     uintnat offs = 0;
-    struct tracked_block blk;
 
-    callstack = caml_callback(memprof_callback, Val_unit);
-
-    if(caml_young_ptr - tot_whsize < caml_young_trigger)
-      caml_gc_dispatch();
+    struct smp { uintnat offs, occurences, sz, alloc_frame_pos; } *samples, *p;
+    uintnat sz = 2, n_samples = 0;
+    samples = (struct smp*)malloc(sz*sizeof(struct smp));
+    if(samples == NULL)
+      goto abort;
 
     for(i = 0; i < num_blocks; i++) {
       next_sample -= block_sizes[i];
       offs += block_sizes[i];
       if(next_sample < 0) {
-        blk.occurences = mt_generate_poisson(-next_sample*lambda) + 1;
-        blk.alloc_frame_pos = i;
+        if(n_samples >= sz) {
+          sz *= 2;
+          p = (struct smp*)realloc(samples, sz);
+          if(p == NULL) { free(samples); goto abort; }
+          samples = p;
+        }
 
-        /* It is important not to allocate anything or call the GC between
-         * this point and the re-execution of the allocation code in assembly,
-         * because blk.block would then be incorrect. */
-        blk.block = Val_hp(caml_young_ptr - offs);
-        blk.callstack = callstack;
-
-        push(&blk);
-
-        /* It is *not* garanteed that this block will actually be used,
-         * because a signal can interrupt the allocation in the assembly code.
-         * Thus, we put a special header on this block and we will lazily remove
-         * this sample if this header is not overriden. */
-        Hd_val(blk.block) = Make_header(0, 0, Caml_blue);
+        samples[n_samples].offs = offs;
+        samples[n_samples].occurences =
+          mt_generate_poisson(-next_sample*lambda) + 1;
+        samples[n_samples].sz = Wosize_whsize(block_sizes[i]);
+        samples[n_samples].alloc_frame_pos = i;
+        n_samples++;
 
         next_sample = mt_generate_exponential();
       }
     }
 
     Assert(offs == tot_whsize);
+
+    CAMLlocalN(ephes, n_samples);
+    callstack = capture_callstack();
+    for(i = 0; i < n_samples; i++) {
+      if(samples[i].alloc_frame_pos == 0)
+        callstack_cur = callstack;
+      else {
+        callstack_cur = caml_alloc(Wosize_val(callstack), 0);
+        for(j = 1; j < Wosize_val(callstack); j++)
+          Store_field(callstack_cur, j, Field(callstack, j));
+        tmp = caml_alloc_small(2, 0);
+        Field(tmp, 0) = Field(callstack, 0);
+        Field(tmp, 1) = Val_long(samples[i].alloc_frame_pos);
+        Store_field(callstack_cur, 0, tmp);
+      }
+
+      ephes[i] = do_callback(samples[i].sz, samples[i].occurences, callstack_cur);
+      if(Is_exception_result(ephes[i])) {
+        free(samples);
+        caml_raise(Extract_exception(ephes[i]));
+      }
+    }
+
+    if(caml_young_ptr - tot_whsize < caml_young_trigger)
+      caml_gc_dispatch();
+
+    for(i = 0; i < n_samples; i++) {
+      value v = Val_hp(caml_young_ptr - samples[i].offs);
+
+      /* It is important not to allocate anything or call the GC between
+       * this point and the re-execution of the allocation code in assembly,
+       * because blk.block would then be incorrect. */
+      caml_ephe_set_key(ephes[i], Val_long(0), v);
+
+      /* It is *not* garanteed that this block will actually be used,
+       * because a signal can interrupt the allocation in the assembly code.
+       * Thus, we put an abstract header on this unitialized block. */
+      Hd_val(v) = Make_header(samples[i].sz, Abstract_tag, Caml_black);
+    }
+
+    free(samples);
   }
 
   /* We prevent the next allocation to be sampled, as it already had its
    * chance before the call. */
+ abort:
   next_sample_young += tot_whsize;
   update_limit();
 
@@ -481,211 +490,7 @@ void caml_memprof_call_gc_end(double rest) {
 }
 #endif
 
-static void caml_memprof_clean() {
-  uintnat i, j;
-
-  for(i = j = old; i < tracked_blocks_end; i++) {
-    value blk = tracked_blocks[i].block;
-    Assert(Is_in_heap_or_young(blk));
-    if(Is_young(blk)) {
-      if(Hd_val(blk) == 0) {
-        Assert(Is_in_heap(Field(blk, 0)));
-        tracked_blocks[i].block = Field(blk, 0);
-      } else if(Hd_val(blk) != Make_header(0, 0, Caml_blue)) {
-        Assert(Is_white_val(blk) || Is_black_val(blk));
-        Assert(Wosize_val(blk) != 0);
-        Assert(Wosize_val(blk) <= Max_young_wosize);
-      } else
-        continue;
-    }
-    tracked_blocks[j] = tracked_blocks[i];
-    j++;
-  }
-  tracked_blocks_end = j;
-
-  shrink();
-}
-
 void caml_memprof_minor_gc_update(value* old_young_ptr) {
-  uintnat i;
-
-  for(i = old; i < tracked_blocks_end; i++) {
-    value blk = tracked_blocks[i].block;
-    Assert(Is_in_heap_or_young(blk));
-    if(Is_young(blk)) {
-      if(Hd_val(blk) == 0) {
-        Assert(Is_in_heap(Field(blk, 0)));
-        tracked_blocks[i].block = Field(blk, 0);
-      } else {
-        Assert(Hd_val(blk) == Make_header(0, 0, Caml_blue) ||
-               Is_white_val(blk) || Is_black_val(blk));
-        Assert(Hd_val(blk) == Make_header(0, 0, Caml_blue) ||
-               Wosize_val(blk) != 0);
-        Assert(Wosize_val(blk) <= Max_young_wosize);
-        continue;
-      }
-    }
-    tracked_blocks[old] = tracked_blocks[i];
-    old++;
-  }
-
-  tracked_blocks_end = old;
-
-  shrink();
-
   next_sample_young -= caml_young_alloc_end - old_young_ptr;
   update_limit();
-}
-
-void caml_memprof_do_young_roots(scanning_action f) {
-  uintnat i;
-
-  for(i = old; i < tracked_blocks_end; i++) {
-    value* r = &tracked_blocks[i].callstack;
-    f(*r, r);
-  }
-}
-
-void caml_memprof_major_gc_update(void) {
-  uintnat i, j;
-
-  j = 0;
-  for(i = 0; i < old; i++) {
-    Assert(Is_in_heap(tracked_blocks[i].block));
-    if(!Is_white_val(tracked_blocks[i].block))
-      tracked_blocks[j++] = tracked_blocks[i];
-  }
-  old = j;
-  for(; i < tracked_blocks_end; i++)
-    if(Is_young(tracked_blocks[i].block) ||
-       !Is_white_val(tracked_blocks[i].block))
-      tracked_blocks[j++] = tracked_blocks[i];
-  tracked_blocks_end = j;
-
-  shrink();
-}
-
-void caml_memprof_do_strong_roots(scanning_action f) {
-  uintnat i;
-
-  for(i = 0; i < tracked_blocks_end; i++) {
-    value* r = &tracked_blocks[i].callstack;
-    f(*r, r);
-  }
-}
-
-void caml_memprof_do_weak_roots(scanning_action f) {
-  uintnat i;
-
-  Assert(old == tracked_blocks_end);
-
-  for(i = 0; i < tracked_blocks_end; i++) {
-    value* r = &tracked_blocks[i].block;
-    Assert(Is_in_heap(*r));
-    f(*r, r);
-  }
-}
-
-CAMLprim value caml_memprof_set(value v) {
-  CAMLparam1(v);
-
-  double l = Double_val(v);
-
-  if(!(l >= 0) || l > 1)
-    caml_invalid_argument("caml_memprof_set");
-
-  lambda = l;
-  lambda_rec = l == 0 ? INFINITY : 1/l;
-  renew_sample();
-
-  CAMLreturn(Val_unit);
-}
-
-CAMLprim value caml_memprof_clear(value unit) {
-  CAMLparam0();
-
-  tracked_blocks_end = 0;
-  shrink();
-
-  CAMLreturn(Val_unit);
-}
-
-CAMLprim value caml_memprof_dump_samples(value unit) {
-  CAMLparam0();
-  CAMLlocal3(res, sample, tmp);
-  uintnat i;
-  struct tracked_block* buffer;
-  value* callstacks;
-
-  caml_memprof_clean();
-
-  if(tracked_blocks_end == 0)
-    CAMLreturn(Atom(0)); // empty array
-
-  if(tracked_blocks_end > Max_wosize)
-    caml_failwith("Too many samples to dump.");
-
-  buffer = (struct tracked_block*)
-    malloc(tracked_blocks_end * sizeof(struct tracked_block));
-  if(buffer == NULL)
-    caml_raise_out_of_memory();
-  memcpy(buffer, tracked_blocks,
-         tracked_blocks_end * sizeof(struct tracked_block));
-
-  callstacks = (value*)malloc(tracked_blocks_end * sizeof(value));
-  if(callstacks == NULL) {
-    free(buffer);
-    caml_raise_out_of_memory();
-  }
-
-  for(i = 0; i < tracked_blocks_end; i++) {
-    callstacks[i] = buffer[i].callstack;
-    buffer[i].block = Val_long(Wosize_val(buffer[i].block));
-  }
-
-  Begin_roots_block(callstacks, tracked_blocks_end);
-  res = caml_alloc(tracked_blocks_end, 0);
-
-  for(i = 0; i < Wosize_val(res); i++) {
-#ifdef NATIVE_CODE
-    uintnat callstack_sz = Wosize_val(callstacks[i]);
-#endif
-
-    sample = caml_alloc(3, 0);
-    Store_field(res, i, sample);
-    Store_field(sample, 1, buffer[i].block);
-    Store_field(sample, 2, Val_long(buffer[i].occurences));
-
-#ifdef NATIVE_CODE
-    if(buffer[i].alloc_frame_pos != 0 && callstack_sz > 1) {
-      uintnat j;
-      if (callstack_sz <= Max_young_wosize) {
-        tmp = caml_alloc_small(callstack_sz, 0);
-        for (j = 0; j < callstack_sz; j++)
-          Field(tmp, j) = Field(callstacks[i], j);
-        callstacks[i] = tmp;
-      } else {
-        tmp = caml_alloc_shr(callstack_sz, 0);
-        for (j = 0; j < callstack_sz; j++)
-          caml_initialize(&Field(tmp, j), Field(callstacks[i], j));
-        callstacks[i] = tmp;
-      }
-
-      tmp = caml_alloc_small(2, 0);
-      Field(tmp, 0) = Field(callstacks[i], 1);
-      Field(tmp, 1) = Val_long(buffer[i].alloc_frame_pos);
-
-      Store_field(callstacks[i], 1, tmp);
-    }
-#endif
-
-    Store_field(sample, 0, callstacks[i]);
-  }
-
-  End_roots();
-
-  free(buffer);
-  free(callstacks);
-
-  CAMLreturn(res);
 }

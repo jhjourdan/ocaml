@@ -48,6 +48,7 @@ struct caml_ephe_ref_elt {
 struct caml_ephe_ref_table CAML_TABLE_STRUCT(struct caml_ephe_ref_elt);
 CAMLextern struct caml_ephe_ref_table caml_ephe_ref_table;
 
+extern void caml_update_young_limit(void);
 extern void caml_set_minor_heap_size (asize_t); /* size in bytes */
 extern void caml_empty_minor_heap (void);
 CAMLextern void caml_gc_dispatch (void);

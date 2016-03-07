@@ -9,9 +9,7 @@ val set_ctrl : ctrl -> unit
 val reset : unit -> unit
 
 type sample = {
-    callstack : Printexc.raw_backtrace;
     size : int;
     occurences : int;
+    callstack : Printexc.raw_backtrace
 }
-
-val dump_samples : unit -> sample array

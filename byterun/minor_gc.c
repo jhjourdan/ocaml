@@ -117,6 +117,18 @@ static void clear_table (struct generic_table *tbl)
     tbl->limit = tbl->threshold;
 }
 
+void caml_update_young_limit(void) {
+  caml_young_limit =
+    caml_memprof_young_limit < caml_young_trigger ?
+    caml_young_trigger : caml_memprof_young_limit;
+
+#ifdef NATIVE_CODE
+  if(caml_requested_minor_gc || caml_requested_major_slice ||
+     caml_signals_are_pending)
+    caml_young_limit = caml_young_alloc_end;
+#endif
+}
+
 void caml_set_minor_heap_size (asize_t bsz)
 {
   char *new_heap;
@@ -129,41 +141,10 @@ void caml_set_minor_heap_size (asize_t bsz)
     CAML_INSTR_INT ("force_minor/set_minor_heap_size@", 1);
     caml_requested_minor_gc = 0;
     caml_young_trigger = caml_young_alloc_mid;
-    caml_young_limit = caml_young_trigger;
+    caml_update_young_limit();
     caml_empty_minor_heap ();
   }
   CAMLassert (caml_young_ptr == caml_young_alloc_end);
-#ifdef MMAP_INTERVAL
-  {
-    static uintnat minor_heap_mapped_bsz = 0;
-    uintnat new_mapped_bsz;
-    new_mapped_bsz = Round_mmap_size (bsz);
-    void *block;
-
-    CAMLassert (caml_young_start != NULL);
-    if (new_mapped_bsz > minor_heap_mapped_bsz){
-      uintnat addbsz = new_mapped_bsz - minor_heap_mapped_bsz;
-      new_heap = (char *) caml_young_start - addbsz;
-      block = caml_mmap_heap (new_heap, addbsz, PROT_READ | PROT_WRITE,
-                              MAP_FIXED);
-      if (block != new_heap){
-        if (minor_heap_mapped_bsz == 0){
-          caml_fatal_error ("cannot initialize minor heap: mmap failed\n");
-        }else{
-          caml_raise_out_of_memory ();
-        }
-      }
-      new_heap_base = new_heap;
-    }else if (new_mapped_bsz < minor_heap_mapped_bsz){
-      uintnat subbsz = minor_heap_mapped_bsz - new_mapped_bsz;
-      (void) caml_mmap_heap (caml_young_start, subbsz, PROT_NONE,
-                             MAP_FIXED | MAP_NORESERVE);
-      new_heap_base = new_heap = (char *) caml_young_start + subbsz;
-    }else{
-      new_heap_base = new_heap = caml_young_base;
-    }
-  }
-#else
   new_heap = caml_aligned_malloc(bsz, 0, &new_heap_base);
   if (new_heap == NULL) caml_raise_out_of_memory();
   if (caml_page_table_add(In_young, new_heap, new_heap + bsz) != 0)
@@ -173,7 +154,6 @@ void caml_set_minor_heap_size (asize_t bsz)
     caml_page_table_remove(In_young, caml_young_start, caml_young_end);
     free (caml_young_base);
   }
-#endif
   caml_young_base = new_heap_base;
   caml_young_start = (value *) new_heap;
   caml_young_end = (value *) (new_heap + bsz);
@@ -181,7 +161,7 @@ void caml_set_minor_heap_size (asize_t bsz)
   caml_young_alloc_mid = caml_young_alloc_start + Wsize_bsize (bsz) / 2;
   caml_young_alloc_end = caml_young_end;
   caml_young_trigger = caml_young_alloc_start;
-  caml_young_limit = caml_young_trigger;
+  caml_update_young_limit();
   caml_young_ptr = caml_young_alloc_end;
   caml_minor_heap_wsz = Wsize_bsize (bsz);
 
@@ -447,7 +427,7 @@ CAMLexport void caml_gc_dispatch (void)
     /* reset the pointers first because the end hooks might allocate */
     caml_requested_minor_gc = 0;
     caml_young_trigger = caml_young_alloc_mid;
-    caml_young_limit = caml_young_trigger;
+    caml_update_young_limit();
     caml_empty_minor_heap ();
     /* The minor heap is empty, we can start a major collection. */
     if (caml_gc_phase == Phase_idle) caml_major_collection_slice (-1);
@@ -461,7 +441,7 @@ CAMLexport void caml_gc_dispatch (void)
          repeat the minor collection. */
       caml_requested_minor_gc = 0;
       caml_young_trigger = caml_young_alloc_mid;
-      caml_young_limit = caml_young_trigger;
+      caml_update_young_limit();
       caml_empty_minor_heap ();
       /* The minor heap is empty, we can start a major collection. */
       if (caml_gc_phase == Phase_idle) caml_major_collection_slice (-1);
@@ -472,7 +452,7 @@ CAMLexport void caml_gc_dispatch (void)
     /* The minor heap is half-full, do a major GC slice. */
     caml_requested_major_slice = 0;
     caml_young_trigger = caml_young_alloc_start;
-    caml_young_limit = caml_young_trigger;
+    caml_update_young_limit();
     caml_major_collection_slice (-1);
     CAML_INSTR_TIME (tmr, "dispatch/major");
   }

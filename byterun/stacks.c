@@ -55,7 +55,7 @@ void caml_realloc_stack(asize_t required_space)
   size = caml_stack_high - caml_stack_low;
   do {
     if (size >= caml_max_stack_size) caml_raise_stack_overflow();
-    size *= 2;
+    size += 256;
   } while (size < caml_stack_high - caml_extern_sp + required_space);
   caml_gc_message (0x08, "Growing stack to %"
                          ARCH_INTNAT_PRINTF_FORMAT "uk bytes\n",

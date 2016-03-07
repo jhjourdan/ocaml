@@ -470,7 +470,6 @@ static void mark_slice (intnat work)
              Mark finalised values. */
           gray_vals_cur = gray_vals_ptr;
           caml_final_update ();
-          caml_memprof_major_gc_update ();
           gray_vals_ptr = gray_vals_cur;
           if (gray_vals_ptr > gray_vals){
             v = *--gray_vals_ptr;
