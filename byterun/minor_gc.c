@@ -27,7 +27,7 @@
 #include "caml/mlvalues.h"
 #include "caml/roots.h"
 #include "caml/signals.h"
-#include "caml/weak.h"
+#include "caml/weak_private.h"
 
 /* Pointers into the minor heap.
    [caml_young_base]
