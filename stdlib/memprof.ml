@@ -46,7 +46,7 @@ let push e =
     if !n_samples = Array.length !samples then begin
       let rec alloc () =
         let res = Array.make (!n_samples * 2) empty_ephe in
-        if Array.length !samples <> !n_samples * 2 then alloc ()
+        if Array.length res <> !n_samples * 2 then alloc ()
         else res
       in
       let s = alloc () in

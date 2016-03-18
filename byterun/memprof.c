@@ -200,30 +200,24 @@ CAMLprim value caml_memprof_get(value v) {
   CAMLreturn(res);
 }
 
-static value memprof_callback;
+static value memprof_callback = Val_unit;
 
 CAMLprim value caml_memprof_register_callback(value callback) {
   CAMLparam1(callback);
+  int was0 = memprof_callback == Val_unit;
   memprof_callback = callback;
-  caml_register_global_root(&memprof_callback);
+  if(was0)
+    caml_register_global_root(&memprof_callback);
   CAMLreturn(Val_unit);
 }
 
 static value capture_callstack() {
-  CAMLparam0();
-  CAMLlocal1(res);
-  res = caml_get_current_callstack(Val_long(callstack_size));
-  CAMLreturn(res);
+  return caml_get_current_callstack(Val_long(callstack_size));
 }
 
 static value do_callback(uintnat wosize, uintnat occurences, value callstack) {
-  CAMLparam1(callstack);
-  double old_lambda = lambda;
-  set_lambda(0);
-  value res = caml_callback3_exn(memprof_callback, Val_long(wosize),
-                                 Val_long(occurences), callstack);
-  set_lambda(old_lambda);
-  CAMLreturn(res);
+  return caml_callback3_exn(memprof_callback, Val_long(wosize),
+                            Val_long(occurences), callstack);
 }
 
 void caml_memprof_track_young(uintnat wosize) {
@@ -237,8 +231,11 @@ void caml_memprof_track_young(uintnat wosize) {
   caml_young_ptr += whsize;
 
   long occurences = mt_generate_poisson(rest*lambda) + 1;
+  double old_lambda = lambda;
+  set_lambda(0);
   callstack = capture_callstack();
   ephe = do_callback(wosize, occurences, callstack);
+  set_lambda(old_lambda);
   if (Is_exception_result(ephe)) caml_raise(Extract_exception(ephe));
 
   if(caml_young_ptr - whsize < caml_young_trigger)
@@ -266,8 +263,11 @@ value caml_memprof_track_alloc_shr(value block) {
     // scanning this uninitialized block.
     tag_t oldtag = Tag_val(block);
     Tag_val(block) = Abstract_tag;
+    double old_lambda = lambda;
+    set_lambda(0);
     callstack = capture_callstack();
     ephe = do_callback(Wosize_val(block), occurences, callstack);
+    set_lambda(old_lambda);
     if (Is_exception_result(ephe)) caml_raise(Extract_exception(ephe));
     Tag_val(block) = oldtag;
 
@@ -346,12 +346,15 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
 
   CAMLxparamN(sampled, j);
 
+  double old_lambda = lambda;
+  set_lambda(0);
   callstack = capture_callstack();
   for(i = 0; i < j; i++) {
     ephe = do_callback(Wosize_val(sampled[i]), occurences[i], callstack);
     if (Is_exception_result(ephe)) {
       free(sampled);
       free(occurences);
+      set_lambda(old_lambda);
       caml_raise(Extract_exception(ephe));
     }
     caml_ephe_set_key(ephe, Val_long(0), sampled[i]);
@@ -359,6 +362,7 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
 
   free(sampled);
   free(occurences);
+  set_lambda(old_lambda);
   CAMLreturn0;
 }
 
@@ -439,6 +443,8 @@ void caml_memprof_call_gc_end(double rest) {
     Assert(offs == tot_whsize);
 
     CAMLlocalN(ephes, n_samples);
+    double old_lambda = lambda;
+    set_lambda(0);
     callstack = capture_callstack();
     for(i = 0; i < n_samples; i++) {
       if(samples[i].alloc_frame_pos == 0)
@@ -456,9 +462,11 @@ void caml_memprof_call_gc_end(double rest) {
       ephes[i] = do_callback(samples[i].sz, samples[i].occurences, callstack_cur);
       if(Is_exception_result(ephes[i])) {
         free(samples);
+        set_lambda(old_lambda);
         caml_raise(Extract_exception(ephes[i]));
       }
     }
+    set_lambda(old_lambda);
 
     if(caml_young_ptr - tot_whsize < caml_young_trigger)
       caml_gc_dispatch();
