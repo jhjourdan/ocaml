@@ -394,7 +394,7 @@ case "$bytecc,$target" in
     dllccompopts="-U_WIN32 -DCAML_DLL"
     if test $with_sharedlibs = yes; then
       flexlink="flexlink -chain $flavor -merge-manifest -stack 16777216"
-      flexdir=`$flexlink -where | dos2unix`
+      flexdir=`$flexlink -where | tr -d '\015'`
       if test -z "$flexdir"; then
         wrn "flexlink not found: native shared libraries won't be available."
         with_sharedlibs=no
@@ -789,7 +789,7 @@ if test $with_sharedlibs = "yes"; then
     i[3456]86-*-haiku*)           natdynlink=true;;
     arm*-*-linux*)                natdynlink=true;;
     arm*-*-freebsd*)              natdynlink=true;;
-    earm*-*-netbsd*)               natdynlink=true;;
+    earm*-*-netbsd*)              natdynlink=true;;
     aarch64-*-linux*)             natdynlink=true;;
   esac
 fi
@@ -874,7 +874,7 @@ esac
 case "$native_compiler" in
     true) ;;
     false)
-      arch=none; model=default; system=unknown;;
+      arch=none; model=default; system=unknown; natdynlink=false;;
 esac
 
 if test -z "$ccoption"; then

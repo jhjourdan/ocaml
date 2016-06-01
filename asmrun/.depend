@@ -213,7 +213,8 @@ major_gc.o: major_gc.c ../byterun/caml/compact.h ../byterun/caml/config.h \
  ../byterun/caml/freelist.h ../byterun/caml/gc.h \
  ../byterun/caml/gc_ctrl.h ../byterun/caml/major_gc.h \
  ../byterun/caml/misc.h ../byterun/caml/mlvalues.h \
- ../byterun/caml/roots.h ../byterun/caml/weak.h ../byterun/caml/memprof.h
+ ../byterun/caml/roots.h ../byterun/caml/signals.h ../byterun/caml/weak.h \
+ ../byterun/caml/memprof.h
 md5.o: md5.c ../byterun/caml/alloc.h ../byterun/caml/misc.h \
  ../byterun/caml/config.h ../byterun/caml/../../config/m.h \
  ../byterun/caml/../../config/s.h ../byterun/caml/mlvalues.h \
@@ -610,7 +611,8 @@ major_gc.p.o: major_gc.c ../byterun/caml/compact.h ../byterun/caml/config.h \
  ../byterun/caml/freelist.h ../byterun/caml/gc.h \
  ../byterun/caml/gc_ctrl.h ../byterun/caml/major_gc.h \
  ../byterun/caml/misc.h ../byterun/caml/mlvalues.h \
- ../byterun/caml/roots.h ../byterun/caml/weak.h ../byterun/caml/memprof.h
+ ../byterun/caml/roots.h ../byterun/caml/signals.h ../byterun/caml/weak.h \
+ ../byterun/caml/memprof.h
 md5.p.o: md5.c ../byterun/caml/alloc.h ../byterun/caml/misc.h \
  ../byterun/caml/config.h ../byterun/caml/../../config/m.h \
  ../byterun/caml/../../config/s.h ../byterun/caml/mlvalues.h \
@@ -1007,7 +1009,8 @@ major_gc.d.o: major_gc.c ../byterun/caml/compact.h ../byterun/caml/config.h \
  ../byterun/caml/freelist.h ../byterun/caml/gc.h \
  ../byterun/caml/gc_ctrl.h ../byterun/caml/major_gc.h \
  ../byterun/caml/misc.h ../byterun/caml/mlvalues.h \
- ../byterun/caml/roots.h ../byterun/caml/weak.h ../byterun/caml/memprof.h
+ ../byterun/caml/roots.h ../byterun/caml/signals.h ../byterun/caml/weak.h \
+ ../byterun/caml/memprof.h
 md5.d.o: md5.c ../byterun/caml/alloc.h ../byterun/caml/misc.h \
  ../byterun/caml/config.h ../byterun/caml/../../config/m.h \
  ../byterun/caml/../../config/s.h ../byterun/caml/mlvalues.h \
@@ -1404,7 +1407,8 @@ major_gc.i.o: major_gc.c ../byterun/caml/compact.h ../byterun/caml/config.h \
  ../byterun/caml/freelist.h ../byterun/caml/gc.h \
  ../byterun/caml/gc_ctrl.h ../byterun/caml/major_gc.h \
  ../byterun/caml/misc.h ../byterun/caml/mlvalues.h \
- ../byterun/caml/roots.h ../byterun/caml/weak.h ../byterun/caml/memprof.h
+ ../byterun/caml/roots.h ../byterun/caml/signals.h ../byterun/caml/weak.h \
+ ../byterun/caml/memprof.h
 md5.i.o: md5.c ../byterun/caml/alloc.h ../byterun/caml/misc.h \
  ../byterun/caml/config.h ../byterun/caml/../../config/m.h \
  ../byterun/caml/../../config/s.h ../byterun/caml/mlvalues.h \

@@ -227,8 +227,17 @@ let mk_keep_docs f =
   "-keep-docs", Arg.Unit f, " Keep documentation strings in .cmi files"
 ;;
 
+let mk_no_keep_docs f =
+  "-keep-docs", Arg.Unit f,
+  " Do not keep documentation strings in .cmi files (default)"
+;;
+
 let mk_keep_locs f =
   "-keep-locs", Arg.Unit f, " Keep locations in .cmi files"
+;;
+
+let mk_no_keep_locs f =
+  "-no-keep-locs", Arg.Unit f, " Do not keep locations in .cmi files (default)"
 ;;
 
 let mk_labels f =
@@ -259,9 +268,18 @@ let mk_modern f =
   "-modern", Arg.Unit f, " (deprecated) same as -labels"
 ;;
 
+let mk_alias_deps f =
+  "-alias-deps", Arg.Unit f,
+  " Do record dependencies for module aliases"
+;;
+
 let mk_no_alias_deps f =
   "-no-alias-deps", Arg.Unit f,
   " Do not record dependencies for module aliases"
+;;
+
+let mk_app_funct f =
+  "-app-funct", Arg.Unit f, " Activate applicative functors"
 ;;
 
 let mk_no_app_funct f =
@@ -371,8 +389,18 @@ let mk_principal f =
   "-principal", Arg.Unit f, " Check principality of type inference"
 ;;
 
+let mk_no_principal f =
+  "-no-principal", Arg.Unit f,
+  " Do not check principality of type inference (default)"
+;;
+
 let mk_rectypes f =
   "-rectypes", Arg.Unit f, " Allow arbitrary recursive types"
+;;
+
+let mk_no_rectypes f =
+  "-no-rectypes", Arg.Unit f,
+  " Do not allow arbitrary recursive types (default)"
 ;;
 
 let mk_remove_unused_arguments f =
@@ -403,6 +431,11 @@ let mk_short_paths f =
 
 let mk_stdin f =
   "-stdin", Arg.Unit f, " Read script from standard input"
+;;
+
+let mk_no_strict_sequence f =
+  "-no-strict-sequence", Arg.Unit f,
+  " Left-hand part of a sequence need not have type unit (default)"
 ;;
 
 let mk_strict_sequence f =
@@ -651,8 +684,16 @@ let mk_strict_formats f =
   " Reject invalid formats accepted by legacy implementations\n\
   \     (Warning: Invalid formats may behave differently from\n\
   \      previous OCaml versions, and will become always-rejected\n\
-  \      in future OCaml versions. You should use this flag\n\
-  \      to detect and fix invalid formats.)"
+  \      in future OCaml versions. You should always use this flag\n\
+  \      to detect invalid formats so you can fix them.)"
+
+let mk_no_strict_formats f =
+  "-no-strict-formats", Arg.Unit f,
+  " Accept invalid formats accepted by legacy implementations (default)\n\
+  \     (Warning: Invalid formats may behave differently from\n\
+  \      previous OCaml versions, and will become always-rejected\n\
+  \      in future OCaml versions. You should never use this flag\n\
+  \      and instead fix invalid formats.)"
 ;;
 
 let mk__ f =
@@ -664,7 +705,9 @@ module type Common_options = sig
   val _absname : unit -> unit
   val _I : string -> unit
   val _labels : unit -> unit
+  val _alias_deps : unit -> unit
   val _no_alias_deps : unit -> unit
+  val _app_funct : unit -> unit
   val _no_app_funct : unit -> unit
   val _noassert : unit -> unit
   val _nolabels : unit -> unit
@@ -672,11 +715,15 @@ module type Common_options = sig
   val _open : string -> unit
   val _ppx : string -> unit
   val _principal : unit -> unit
+  val _no_principal : unit -> unit
   val _rectypes : unit -> unit
+  val _no_rectypes : unit -> unit
   val _safe_string : unit -> unit
   val _short_paths : unit -> unit
   val _strict_sequence : unit -> unit
+  val _no_strict_sequence : unit -> unit
   val _strict_formats : unit -> unit
+  val _no_strict_formats : unit -> unit
   val _unsafe : unit -> unit
   val _unsafe_string : unit -> unit
   val _version : unit -> unit
@@ -692,7 +739,7 @@ module type Common_options = sig
   val _dlambda : unit -> unit
 
   val anonymous : string -> unit
-end;;
+end
 
 module type Compiler_options = sig
   val _a : unit -> unit
@@ -710,7 +757,9 @@ module type Compiler_options = sig
   val _intf : string -> unit
   val _intf_suffix : string -> unit
   val _keep_docs : unit -> unit
+  val _no_keep_docs : unit -> unit
   val _keep_locs : unit -> unit
+  val _no_keep_locs : unit -> unit
   val _linkall : unit -> unit
   val _noautolink : unit -> unit
   val _o : string -> unit
@@ -720,6 +769,7 @@ module type Compiler_options = sig
   val _pack : unit -> unit
   val _pp : string -> unit
   val _principal : unit -> unit
+  val _no_principal : unit -> unit
   val _rectypes : unit -> unit
   val _runtime_variant : string -> unit
   val _safe_string : unit -> unit
@@ -849,7 +899,7 @@ module type Ocamldoc_options = sig
   val _v : unit -> unit
   val _verbose : unit -> unit
   val _vmthread : unit -> unit
-end;;
+end
 
 module type Arg_list = sig
     val list : (string * Arg.spec * string) list
@@ -882,13 +932,17 @@ struct
     mk_intf_suffix F._intf_suffix;
     mk_intf_suffix_2 F._intf_suffix;
     mk_keep_docs F._keep_docs;
+    mk_no_keep_docs F._no_keep_docs;
     mk_keep_locs F._keep_locs;
+    mk_no_keep_locs F._no_keep_locs;
     mk_labels F._labels;
     mk_linkall F._linkall;
     mk_make_runtime F._make_runtime;
     mk_make_runtime_2 F._make_runtime;
     mk_modern F._labels;
+    mk_alias_deps F._alias_deps;
     mk_no_alias_deps F._no_alias_deps;
+    mk_app_funct F._app_funct;
     mk_no_app_funct F._no_app_funct;
     mk_no_check_prims F._no_check_prims;
     mk_noassert F._noassert;
@@ -904,12 +958,16 @@ struct
     mk_pp F._pp;
     mk_ppx F._ppx;
     mk_principal F._principal;
+    mk_no_principal F._no_principal;
     mk_rectypes F._rectypes;
+    mk_no_rectypes F._no_rectypes;
     mk_runtime_variant F._runtime_variant;
     mk_safe_string F._safe_string;
     mk_short_paths F._short_paths;
     mk_strict_sequence F._strict_sequence;
+    mk_no_strict_sequence F._no_strict_sequence;
     mk_strict_formats F._strict_formats;
+    mk_no_strict_formats F._no_strict_formats;
     mk_thread F._thread;
     mk_unsafe F._unsafe;
     mk_unsafe_string F._unsafe_string;
@@ -946,7 +1004,9 @@ struct
     mk_I F._I;
     mk_init F._init;
     mk_labels F._labels;
+    mk_alias_deps F._alias_deps;
     mk_no_alias_deps F._no_alias_deps;
+    mk_app_funct F._app_funct;
     mk_no_app_funct F._no_app_funct;
     mk_noassert F._noassert;
     mk_noinit F._noinit;
@@ -957,12 +1017,16 @@ struct
     mk_open F._open;
     mk_ppx F._ppx;
     mk_principal F._principal;
+    mk_no_principal F._no_principal;
     mk_rectypes F._rectypes;
+    mk_no_rectypes F._no_rectypes;
     mk_safe_string F._safe_string;
     mk_short_paths F._short_paths;
     mk_stdin F._stdin;
     mk_strict_sequence F._strict_sequence;
+    mk_no_strict_sequence F._no_strict_sequence;
     mk_strict_formats F._strict_formats;
+    mk_no_strict_formats F._no_strict_formats;
     mk_unsafe F._unsafe;
     mk_unsafe_string F._unsafe_string;
     mk_version F._version;
@@ -1017,11 +1081,15 @@ struct
     mk_intf F._intf;
     mk_intf_suffix F._intf_suffix;
     mk_keep_docs F._keep_docs;
+    mk_no_keep_docs F._no_keep_docs;
     mk_keep_locs F._keep_locs;
+    mk_no_keep_locs F._no_keep_locs;
     mk_labels F._labels;
     mk_linkall F._linkall;
     mk_inline_max_depth F._inline_max_depth;
+    mk_alias_deps F._alias_deps;
     mk_no_alias_deps F._no_alias_deps;
+    mk_app_funct F._app_funct;
     mk_no_app_funct F._no_app_funct;
     mk_no_float_const_prop F._no_float_const_prop;
     mk_noassert F._noassert;
@@ -1043,7 +1111,9 @@ struct
     mk_pp F._pp;
     mk_ppx F._ppx;
     mk_principal F._principal;
+    mk_no_principal F._no_principal;
     mk_rectypes F._rectypes;
+    mk_no_rectypes F._no_rectypes;
     mk_remove_unused_arguments F._remove_unused_arguments;
     mk_rounds F._rounds;
     mk_runtime_variant F._runtime_variant;
@@ -1052,7 +1122,9 @@ struct
     mk_shared F._shared;
     mk_short_paths F._short_paths;
     mk_strict_sequence F._strict_sequence;
+    mk_no_strict_sequence F._no_strict_sequence;
     mk_strict_formats F._strict_formats;
+    mk_no_strict_formats F._no_strict_formats;
     mk_thread F._thread;
     mk_unbox_closures F._unbox_closures;
     mk_unbox_closures_factor F._unbox_closures_factor;
@@ -1122,7 +1194,9 @@ module Make_opttop_options (F : Opttop_options) = struct
     mk_inline_lifting_benefit F._inline_lifting_benefit;
     mk_inline_branch_factor F._inline_branch_factor;
     mk_labels F._labels;
+    mk_alias_deps F._alias_deps;
     mk_no_alias_deps F._no_alias_deps;
+    mk_app_funct F._app_funct;
     mk_no_app_funct F._no_app_funct;
     mk_noassert F._noassert;
     mk_noinit F._noinit;
@@ -1137,14 +1211,18 @@ module Make_opttop_options (F : Opttop_options) = struct
     mk_open F._open;
     mk_ppx F._ppx;
     mk_principal F._principal;
+    mk_no_principal F._no_principal;
     mk_rectypes F._rectypes;
+    mk_no_rectypes F._no_rectypes;
     mk_remove_unused_arguments F._remove_unused_arguments;
     mk_S F._S;
     mk_safe_string F._safe_string;
     mk_short_paths F._short_paths;
     mk_stdin F._stdin;
     mk_strict_sequence F._strict_sequence;
+    mk_no_strict_sequence F._no_strict_sequence;
     mk_strict_formats F._strict_formats;
+    mk_no_strict_formats F._no_strict_formats;
     mk_unbox_closures F._unbox_closures;
     mk_unbox_closures_factor F._unbox_closures_factor;
     mk_unsafe F._unsafe;
@@ -1194,7 +1272,9 @@ struct
     mk_intf_suffix_2 F._intf_suffix;
     mk_labels F._labels;
     mk_modern F._labels;
+    mk_alias_deps F._alias_deps;
     mk_no_alias_deps F._no_alias_deps;
+    mk_app_funct F._app_funct;
     mk_no_app_funct F._no_app_funct;
     mk_noassert F._noassert;
     mk_nolabels F._nolabels;
@@ -1203,11 +1283,15 @@ struct
     mk_pp F._pp;
     mk_ppx F._ppx;
     mk_principal F._principal;
+    mk_no_principal F._no_principal;
     mk_rectypes F._rectypes;
+    mk_no_rectypes F._no_rectypes;
     mk_safe_string F._safe_string;
     mk_short_paths F._short_paths;
     mk_strict_sequence F._strict_sequence;
+    mk_no_strict_sequence F._no_strict_sequence;
     mk_strict_formats F._strict_formats;
+    mk_no_strict_formats F._no_strict_formats;
     mk_thread F._thread;
     mk_unsafe_string F._unsafe_string;
     mk_v F._v;

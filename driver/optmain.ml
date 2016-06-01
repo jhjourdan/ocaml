@@ -150,13 +150,17 @@ module Options = Main_args.Make_optcomp_options (struct
   let _intf = intf
   let _intf_suffix s = Config.interface_suffix := s
   let _keep_docs = set keep_docs
+  let _no_keep_docs = clear keep_docs
   let _keep_locs = set keep_locs
+  let _no_keep_locs = clear keep_locs
   let _labels = clear classic
   let _linkall = set link_everything
   let _inline_max_depth spec =
     Int_arg_helper.parse spec ~update:inline_max_depth
       ~help_text:"Syntax: -inline-max-depth <n> | <round>=<n>[,...]"
+  let _alias_deps = clear transparent_modules
   let _no_alias_deps = set transparent_modules
+  let _app_funct = set applicative_functors
   let _no_app_funct = clear applicative_functors
   let _no_float_const_prop = clear float_const_prop
   let _noassert = set noassert
@@ -167,9 +171,15 @@ module Options = Main_args.Make_optcomp_options (struct
   let _no_unbox_free_vars_of_closures = clear unbox_free_vars_of_closures
   let _no_unbox_specialised_args = clear unbox_specialised_args
   let _o s = output_name := Some s
-  (* CR mshinwell: should stop e.g. -O2 -classic-inlining
+  (* CR-someday mshinwell: should stop e.g. -O2 -classic-inlining
      lgesbert: could be done in main() below, like for -pack and -c, but that
-     would prevent overriding using OCAMLPARAM. *)
+     would prevent overriding using OCAMLPARAM.
+     mshinwell: We're going to defer this for the moment and add a note in
+     the manual that the behaviour is unspecified in cases such as this.
+     We should refactor the code so that the user's requirements are
+     collected, then checked all at once for illegal combinations, and then
+     transformed into the settings of the individual parameters.
+  *)
   let _o2 () =
     default_simplify_rounds := 2;
     use_inlining_arguments_set o2_arguments;
@@ -188,13 +198,17 @@ module Options = Main_args.Make_optcomp_options (struct
   let _pp s = preprocessor := Some s
   let _ppx s = first_ppx := s :: !first_ppx
   let _principal = set principal
+  let _no_principal = clear principal
   let _rectypes = set recursive_types
+  let _no_rectypes = clear recursive_types
   let _remove_unused_arguments = set remove_unused_arguments
   let _runtime_variant s = runtime_variant := s
   let _safe_string = clear unsafe_string
   let _short_paths = clear real_paths
   let _strict_sequence = set strict_sequence
+  let _no_strict_sequence = clear strict_sequence
   let _strict_formats = set strict_formats
+  let _no_strict_formats = clear strict_formats
   let _shared () = shared := true; dlcode := true
   let _S = set keep_asm_file
   let _thread = set use_threads

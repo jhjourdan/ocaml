@@ -28,6 +28,7 @@
 #include "caml/misc.h"
 #include "caml/mlvalues.h"
 #include "caml/roots.h"
+#include "caml/signals.h"
 #include "caml/weak.h"
 #include "caml/memprof.h"
 
@@ -569,6 +570,7 @@ static void sweep_slice (intnat work)
         ++ caml_stat_major_collections;
         work = 0;
         caml_gc_phase = Phase_idle;
+        caml_request_minor_gc ();
       }else{
         caml_gc_sweep_hp = chunk;
         limit = chunk + Chunk_size (chunk);
@@ -754,7 +756,7 @@ void caml_major_collection_slice (intnat howmuch)
   }
 
   if (caml_gc_phase == Phase_mark || caml_gc_phase == Phase_clean){
-    computed_work = (intnat) (p * (caml_stat_heap_wsz * 250
+    computed_work = (intnat) (p * ((double) caml_stat_heap_wsz * 250
                                    / (100 + caml_percent_free)
                                    + caml_incremental_roots_count));
   }else{
