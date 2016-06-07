@@ -258,18 +258,12 @@ value caml_memprof_track_alloc_shr(value block) {
 
   uint32_t occurences = mt_generate_poisson(lambda * Whsize_val(block));
   if(occurences > 0) {
-    // We temporarily change the tag of the newly allocated  block to
-    // Abstract_tag, because we may trigger the GC and we want to avoid
-    // scanning this uninitialized block.
-    tag_t oldtag = Tag_val(block);
-    Tag_val(block) = Abstract_tag;
     double old_lambda = lambda;
     set_lambda(0);
     callstack = capture_callstack();
     ephe = do_callback(Wosize_val(block), occurences, callstack);
     set_lambda(old_lambda);
     if (Is_exception_result(ephe)) caml_raise(Extract_exception(ephe));
-    Tag_val(block) = oldtag;
 
     caml_ephe_set_key(ephe, Val_long(0), block);
   }
@@ -424,7 +418,7 @@ void caml_memprof_call_gc_end(double rest) {
       if(next_sample < 0) {
         if(n_samples >= sz) {
           sz *= 2;
-          p = (struct smp*)realloc(samples, sz);
+          p = (struct smp*)realloc(samples, sz*sizeof(struct smp));
           if(p == NULL) { free(samples); goto abort; }
           samples = p;
         }

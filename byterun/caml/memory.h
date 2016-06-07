@@ -34,9 +34,16 @@
 extern "C" {
 #endif
 
+enum caml_alloc_effect {
+  CAML_ALLOC_EFFECT_NONE,
+  CAML_ALLOC_EFFECT_RAISE_OOM,
+  CAML_ALLOC_EFFECT_TRACK,
+  CAML_ALLOC_EFFECT_GC
+};
 
 CAMLextern value caml_alloc_shr (mlsize_t wosize, tag_t);
-CAMLextern value caml_alloc_shr_no_track (mlsize_t wosize, tag_t, int raise_oom);
+CAMLextern value caml_alloc_shr_effect (mlsize_t wosize, tag_t,
+                                        enum caml_alloc_effect effect);
 CAMLextern void caml_adjust_gc_speed (mlsize_t, mlsize_t);
 CAMLextern void caml_alloc_dependent_memory (mlsize_t bsz);
 CAMLextern void caml_free_dependent_memory (mlsize_t bsz);
@@ -97,9 +104,9 @@ int caml_page_table_initialize(mlsize_t bytesize);
       caml_young_ptr -= Whsize_wosize (wosize);                             \
     }                                                                       \
     if(caml_young_ptr < caml_memprof_young_limit){                          \
-      Setup_for_event;                                                      \
+      Setup_for_track_gc;                                                   \
       caml_memprof_track_young(wosize);                                     \
-      Restore_after_event;                                                  \
+      Restore_after_track_gc;                                               \
     }                                                                       \
   }                                                                         \
   Hd_hp (caml_young_ptr) = Make_header ((wosize), (tag), Caml_black);       \

@@ -37,8 +37,8 @@ let clean () =
   let new_sz = aux 0 0 in
   Array.fill s new_sz (sz - new_sz) empty_ephe;
   n_samples := new_sz;
-  if !n_samples * 8 <= Array.length s then
-    samples := Array.sub s 0 (2 * !n_samples)
+  if 8 * max !n_samples 1024 <= Array.length s then
+    samples := Array.sub s 0 (2 * max !n_samples 1024)
 
 let push e =
   while !n_samples = Array.length !samples do

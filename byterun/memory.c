@@ -459,14 +459,19 @@ color_t caml_allocation_color (void *hp)
   }
 }
 
-CAMLexport value caml_alloc_shr_no_track (mlsize_t wosize, tag_t tag,
-                                          int raise_oom)
+CAMLexport value caml_alloc_shr_effect (mlsize_t wosize, tag_t tag,
+                                        enum caml_alloc_effect effect)
 {
   header_t *hp;
   value *new_block;
 
+  // We temporarily change the tag of the newly allocated  block to
+  // Abstract_tag, because we may trigger the GC and we want to avoid
+  // scanning this uninitialized block.
+  tag_t tmp_tag = effect >= CAML_ALLOC_EFFECT_GC ? Abstract_tag : tag;
+
   if (wosize > Max_wosize) {
-    if (raise_oom)
+    if (effect >= CAML_ALLOC_EFFECT_RAISE_OOM)
       caml_raise_out_of_memory ();
     else
       return 0;
@@ -475,12 +480,10 @@ CAMLexport value caml_alloc_shr_no_track (mlsize_t wosize, tag_t tag,
   if (hp == NULL){
     new_block = expand_heap (wosize);
     if (new_block == NULL) {
-      if (!raise_oom)
-        return 0;
-      else if (caml_in_minor_collection)
-        caml_fatal_error ("Fatal error: out of memory.\n");
-      else
+      if (effect >= CAML_ALLOC_EFFECT_RAISE_OOM)
         caml_raise_out_of_memory ();
+      else
+        return 0;
     }
     caml_fl_add_blocks ((value) new_block);
     hp = caml_fl_allocate (wosize);
@@ -491,19 +494,20 @@ CAMLexport value caml_alloc_shr_no_track (mlsize_t wosize, tag_t tag,
   /* Inline expansion of caml_allocation_color. */
   if (caml_gc_phase == Phase_mark || caml_gc_phase == Phase_clean
       || (caml_gc_phase == Phase_sweep && (addr)hp >= (addr)caml_gc_sweep_hp)){
-    Hd_hp (hp) = Make_header (wosize, tag, Caml_black);
+    Hd_hp (hp) = Make_header (wosize, tmp_tag, Caml_black);
   }else{
     Assert (caml_gc_phase == Phase_idle
             || (caml_gc_phase == Phase_sweep
                 && (addr)hp < (addr)caml_gc_sweep_hp));
-    Hd_hp (hp) = Make_header (wosize, tag, Caml_white);
+    Hd_hp (hp) = Make_header (wosize, tmp_tag, Caml_white);
   }
-  Assert (Hd_hp (hp) == Make_header (wosize, tag, caml_allocation_color (hp)));
+  Assert (Hd_hp (hp) == Make_header (wosize, tmp_tag, caml_allocation_color (hp)));
   caml_allocated_words += Whsize_wosize (wosize);
   if (caml_allocated_words > caml_minor_heap_wsz){
     CAML_INSTR_INT ("request_major/alloc_shr@", 1);
     caml_request_major_slice ();
   }
+
 #ifdef DEBUG
   {
     uintnat i;
@@ -512,13 +516,18 @@ CAMLexport value caml_alloc_shr_no_track (mlsize_t wosize, tag_t tag,
     }
   }
 #endif
-  return Val_hp (hp);
+
+  if(effect >= CAML_ALLOC_EFFECT_GC) {
+    value res = caml_memprof_track_alloc_shr(Val_hp (hp));
+    res = caml_check_urgent_gc(res);
+    Tag_val(res) = tag;
+    return res;
+  } else
+    return Val_hp (hp);
 }
 
 CAMLexport value caml_alloc_shr (mlsize_t wosize, tag_t tag) {
-  value v = caml_alloc_shr_no_track(wosize, tag, 1);
-  caml_memprof_track_alloc_shr(v);
-  return v;
+  return caml_alloc_shr_effect(wosize, tag, CAML_ALLOC_EFFECT_TRACK);
 }
 
 /* Dependent memory is all memory blocks allocated out of the heap

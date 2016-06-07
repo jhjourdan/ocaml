@@ -74,8 +74,6 @@ CAMLexport struct caml_custom_table
 /* Table of custom blocks in the minor heap that contain finalizers
    or GC speed parameters. */
 
-int caml_in_minor_collection = 0;
-
 /* [sz] and [rsv] are numbers of entries */
 static void alloc_generic_table (struct generic_table *tbl, asize_t sz,
                                  asize_t rsv, asize_t element_size)
@@ -184,6 +182,13 @@ void caml_set_minor_heap_size (asize_t bsz)
 
 static value oldify_todo_list = 0;
 
+static value alloc_shr_minor(mlsize_t wosize, tag_t tag) {
+  value res = caml_alloc_shr_effect(wosize, tag, CAML_ALLOC_EFFECT_NONE);
+  if(res == 0)
+    caml_fatal_error ("Fatal error: out of memory.\n");
+  return res;
+}
+
 /* Note that the tests on the tag depend on the fact that Infix_tag,
    Forward_tag, and No_scan_tag are contiguous. */
 
@@ -206,7 +211,7 @@ void caml_oldify_one (value v, value *p)
         value field0;
 
         sz = Wosize_hd (hd);
-        result = caml_alloc_shr_no_track (sz, tag, 1);
+        result = alloc_shr_minor (sz, tag);
         *p = result;
         field0 = Field (v, 0);
         Hd_val (v) = 0;            /* Set forward flag */
@@ -223,7 +228,7 @@ void caml_oldify_one (value v, value *p)
         }
       }else if (tag >= No_scan_tag){
         sz = Wosize_hd (hd);
-        result = caml_alloc_shr_no_track (sz, tag, 1);
+        result = alloc_shr_minor (sz, tag);
         for (i = 0; i < sz; i++) Field (result, i) = Field (v, i);
         Hd_val (v) = 0;            /* Set forward flag */
         Field (v, 0) = result;     /*  and forward pointer. */
@@ -252,7 +257,7 @@ void caml_oldify_one (value v, value *p)
         if (!vv || ft == Forward_tag || ft == Lazy_tag || ft == Double_tag){
           /* Do not short-circuit the pointer.  Copy as a normal block. */
           Assert (Wosize_hd (hd) == 1);
-          result = caml_alloc_shr_no_track (1, Forward_tag, 1);
+          result = alloc_shr_minor (1, Forward_tag);
           *p = result;
           Hd_val (v) = 0;             /* Set (GC) forward flag */
           Field (v, 0) = result;      /*  and forward pointer. */
@@ -354,7 +359,6 @@ void caml_empty_minor_heap (void)
     if (caml_minor_gc_begin_hook != NULL) (*caml_minor_gc_begin_hook) ();
     CAML_INSTR_SETUP (tmr, "minor");
     prev_alloc_words = caml_allocated_words;
-    caml_in_minor_collection = 1;
     caml_gc_message (0x02, "<", 0);
     caml_oldify_local_roots();
     CAML_INSTR_TIME (tmr, "minor/local_roots");
@@ -402,7 +406,6 @@ void caml_empty_minor_heap (void)
     clear_table ((struct generic_table *) &caml_ephe_ref_table);
     clear_table ((struct generic_table *) &caml_custom_table);
     caml_gc_message (0x02, ">", 0);
-    caml_in_minor_collection = 0;
     caml_final_empty_young ();
     CAML_INSTR_TIME (tmr, "minor/finalized");
     caml_stat_promoted_words += caml_allocated_words - prev_alloc_words;

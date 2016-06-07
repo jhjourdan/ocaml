@@ -586,9 +586,10 @@ static void intern_alloc(mlsize_t whsize, mlsize_t num_objects)
     /* }else if (wosize <= Max_young_wosize){ */
     /*   intern_block = caml_alloc_small (wosize, String_tag); */
     }else{
-      intern_block = caml_alloc_shr_no_track (wosize, String_tag, 0);
+      intern_block = caml_alloc_shr_effect(wosize, String_tag,
+                                           CAML_ALLOC_EFFECT_NONE);
       /* do not do the urgent_gc check here because it might darken
-         intern_block into gray and break the Assert 3 lines down */
+         intern_block into gray and break the Assert 8 lines down */
       if (intern_block == 0) {
         intern_cleanup();
         caml_raise_out_of_memory();
