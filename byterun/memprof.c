@@ -20,13 +20,13 @@ static double lambda = 0;
 static double lambda_rec = INFINITY;
 static intnat callstack_size = 0;
 
-static double next_sample_young;
+static double next_sample_round;
 value* caml_memprof_young_limit;
 
 /* Taken from :
    https://github.com/jhjourdan/SIMD-math-prims
 */
-inline float logapprox(float val) {
+inline static float logapprox(float val) {
   union { float f; int i; } valu;
   float exp, addcst, x;
   valu.f = val;
@@ -42,7 +42,7 @@ inline float logapprox(float val) {
     + (addcst + 0.69314718055995f*exp);
 }
 
-inline float expapprox(float val) {
+inline static float expapprox(float val) {
   union { int i; float f; } xu, xu2;
   float val2, val3, val4, b;
   int val4i;
@@ -103,7 +103,7 @@ static double mt_generate_exponential() {
   return res;
 }
 
-/* Max returned value : 2^30-2 */
+/* Max returned value : 2^30-2. Assumes lambda >= 0. */
 static uint32_t mt_generate_poisson(double lambda) {
   Assert(lambda >= 0 && !isinf(lambda));
 
@@ -144,21 +144,23 @@ static uint32_t mt_generate_poisson(double lambda) {
   }
 }
 
-static void update_limit(void) {
-  Assert(next_sample_young >= caml_young_alloc_end - caml_young_ptr);
-  if(next_sample_young > caml_young_alloc_end - caml_young_alloc_start + Max_young_whsize)
-    caml_memprof_young_limit = caml_young_alloc_start - Max_young_wosize;
-  else
-    caml_memprof_young_limit = caml_young_alloc_end - (uintnat)next_sample_young;
-
+static void renew_sample(void) {
+  double exp = mt_generate_exponential();
+  uintnat max = caml_young_ptr - caml_young_alloc_start, exp_int;
+  if(exp < max  && (exp_int = (uintnat)exp) < max) {
+    caml_memprof_young_limit = caml_young_ptr - exp_int;
+    next_sample_round = exp - exp_int;
+  } else
+    caml_memprof_young_limit = caml_young_alloc_start;
   caml_update_young_limit();
 }
 
-static void renew_sample(void) {
-  next_sample_young =
-    caml_young_alloc_end - caml_young_ptr + mt_generate_exponential();
-
-  update_limit();
+static void shift_sample(uintnat n) {
+  if(caml_memprof_young_limit - caml_young_alloc_start > n)
+    caml_memprof_young_limit -= n;
+  else
+    caml_memprof_young_limit = caml_young_alloc_start;
+  caml_update_young_limit();
 }
 
 void caml_memprof_reinit(void) {
@@ -224,7 +226,8 @@ void caml_memprof_track_young(uintnat wosize) {
   CAMLparam0();
   CAMLlocal2(ephe, callstack);
   uintnat whsize = Whsize_wosize(wosize);
-  double rest = caml_young_alloc_end - caml_young_ptr - next_sample_young;
+  double rest =
+    (caml_memprof_young_limit - caml_young_ptr) - next_sample_round;
 
   Assert(rest > 0);
 
@@ -235,16 +238,15 @@ void caml_memprof_track_young(uintnat wosize) {
   set_lambda(0);
   callstack = capture_callstack();
   ephe = do_callback(wosize, occurences, callstack);
-  set_lambda(old_lambda);
+  set_lambda(old_lambda); // Calls renew_sample
   if (Is_exception_result(ephe)) caml_raise(Extract_exception(ephe));
 
   if(caml_young_ptr - whsize < caml_young_trigger)
     caml_gc_dispatch();
+
+  // Starting from this point, we should not allocate
   caml_young_ptr -= whsize;
-
-  next_sample_young += whsize;
-  update_limit();
-
+  shift_sample(whsize);
   caml_ephe_set_key(ephe, Val_long(0), Val_hp(caml_young_ptr));
 
   CAMLreturn0;
@@ -338,6 +340,7 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
   if(sz == 0)
     CAMLreturn0;
 
+  // Before this point, we should not allocate
   CAMLxparamN(sampled, j);
 
   double old_lambda = lambda;
@@ -371,7 +374,7 @@ double caml_memprof_call_gc_begin(void) {
     return 0;
 }
 
-void caml_memprof_call_gc_end(double rest) {
+void caml_memprof_call_gc_end(void) {
   uintnat pc = caml_last_return_address;
   char * sp = caml_bottom_of_stack;
   frame_descr * d;
@@ -382,8 +385,6 @@ void caml_memprof_call_gc_end(double rest) {
   unsigned short* block_sizes;
   CAMLparam0();
   CAMLlocal3(callstack, callstack_cur, tmp);
-
-  Assert(rest >= 0);
 
   if(lambda == 0)
     CAMLreturn0;
@@ -402,12 +403,12 @@ void caml_memprof_call_gc_end(double rest) {
   for(i = 0; i < num_blocks; i++)
     tot_whsize += block_sizes[i];
 
-  if(rest > 0) {
-    double next_sample = tot_whsize - rest;
+  if(caml_young_ptr - caml_memprof_young_limit < tot_whsize) {
+    double next_sample = caml_young_ptr - caml_memprof_young + next_sample_round;
     uintnat offs = 0;
-
     struct smp { uintnat offs, occurences, sz, alloc_frame_pos; } *samples, *p;
     uintnat sz = 2, n_samples = 0;
+
     samples = (struct smp*)malloc(sz*sizeof(struct smp));
     if(samples == NULL)
       goto abort;
@@ -460,11 +461,12 @@ void caml_memprof_call_gc_end(double rest) {
         caml_raise(Extract_exception(ephes[i]));
       }
     }
-    set_lambda(old_lambda);
+    set_lambda(old_lambda); // Calls renew_sample
 
     if(caml_young_ptr - tot_whsize < caml_young_trigger)
       caml_gc_dispatch();
 
+    // Starting from this point, we should not allocate
     for(i = 0; i < n_samples; i++) {
       value v = Val_hp(caml_young_ptr - samples[i].offs);
 
@@ -485,14 +487,12 @@ void caml_memprof_call_gc_end(double rest) {
   /* We prevent the next allocation to be sampled, as it already had its
    * chance before the call. */
  abort:
-  next_sample_young += tot_whsize;
-  update_limit();
+  shift_sample(tot_whsize);
 
   CAMLreturn0;
 }
 #endif
 
-void caml_memprof_minor_gc_update(value* old_young_ptr) {
-  next_sample_young -= caml_young_alloc_end - old_young_ptr;
-  update_limit();
+void caml_memprof_minor_gc_update(void) {
+  renew_sample();
 }

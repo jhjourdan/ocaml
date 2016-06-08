@@ -350,7 +350,6 @@ void caml_oldify_mopup (void)
 void caml_empty_minor_heap (void)
 {
   value **r;
-  value* old_young_ptr = caml_young_ptr;
   struct caml_custom_elt *elt;
   uintnat prev_alloc_words;
   struct caml_ephe_ref_elt *re;
@@ -411,7 +410,7 @@ void caml_empty_minor_heap (void)
     caml_stat_promoted_words += caml_allocated_words - prev_alloc_words;
     CAML_INSTR_INT ("minor/promoted#", caml_allocated_words - prev_alloc_words);
     ++ caml_stat_minor_collections;
-    caml_memprof_minor_gc_update(old_young_ptr);
+    caml_memprof_minor_gc_update();
     if (caml_minor_gc_end_hook != NULL) (*caml_minor_gc_end_hook) ();
   }else{
     caml_final_empty_young ();

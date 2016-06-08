@@ -3,7 +3,7 @@
 
 #include "roots.h"
 
-extern void caml_memprof_minor_gc_update(value* old_young_ptr);
+extern void caml_memprof_minor_gc_update(void);
 extern void caml_memprof_reinit(void);
 
 extern value* caml_memprof_young_limit;
@@ -14,8 +14,7 @@ extern void caml_memprof_track_interned(header_t* block, header_t* blockend);
 
 
 #ifdef NATIVE_CODE
-extern double caml_memprof_call_gc_begin(void);
-extern void caml_memprof_call_gc_end(double);
+extern void caml_memprof_call_gc_end(void);
 #endif
 
 #endif /* CAML_MEMPROF_H */

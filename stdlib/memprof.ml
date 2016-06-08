@@ -10,7 +10,7 @@ external get_ctrl : unit -> ctrl = "caml_memprof_get"
 
 external register_callback :
   (int -> int -> Printexc.raw_backtrace -> (Obj.t, 'a) K1.t) -> unit
-    = "caml_memprof_register_callback"
+  = "caml_memprof_register_callback"
 
 type sample = {
     size : int;
@@ -60,7 +60,7 @@ let push e =
 let _ =
   register_callback
     (fun size occurences callstack ->
-     let ephe = K1.create () in
-     K1.set_data ephe { callstack; size; occurences };
-     push ephe;
-     ephe)
+       let ephe = K1.create () in
+       K1.set_data ephe { callstack; size; occurences };
+       push ephe;
+       ephe)
