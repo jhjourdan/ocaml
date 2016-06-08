@@ -1,15 +1,16 @@
-type ctrl = {
+type callback_kind =
+  | Minor
+  | Major
+  | Major_postponed
+  | Serialized
+
+type 'a ctrl = {
     lambda : float;
     dumpped_callstack_size : int;
+    callback :
+      callback_kind -> int -> int -> Printexc.raw_backtrace ->
+      (Obj.t, 'a) Ephemeron.K1.t
 }
 
-val get_ctrl : unit -> ctrl
-val set_ctrl : ctrl -> unit
-
-val reset : unit -> unit
-
-type sample = {
-    size : int;
-    occurences : int;
-    callstack : Printexc.raw_backtrace
-}
+val start : 'a ctrl -> unit
+val stop : unit -> unit

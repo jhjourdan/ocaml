@@ -13,16 +13,18 @@
 
 static uint32_t mt_state[624];
 static uint32_t mt_index;
-static int mt_init = 0;
 
 /* [lambda] is the mean number of samples for each allocated word (including
-   block headers. */
+   block headers). */
 static double lambda = 0;
 static double lambda_rec = INFINITY;
 static intnat callstack_size = 0;
+static value memprof_callback = Val_unit;
 
 static double next_sample_round;
 value* caml_memprof_young_limit;
+
+static int init = 0;
 
 /* Taken from :
    https://github.com/jhjourdan/SIMD-math-prims
@@ -180,37 +182,19 @@ CAMLprim value caml_memprof_set(value v) {
     caml_failwith("caml_memprof_set");
 
   set_lambda(l);
-
   callstack_size = sz;
+  memprof_callback = Field(v, 2);
 
-  if(!mt_init) {
+  if(!init) {
     int i;
     mt_index = 624;
     mt_state[0] = 42;
     for(i = 1; i < 624; i++)
       mt_state[i] = 0x6c078965 * (mt_state[i-1] ^ (mt_state[i-1] >> 30)) + i;
+
+    caml_register_global_root(&memprof_callback);
   }
 
-  CAMLreturn(Val_unit);
-}
-
-CAMLprim value caml_memprof_get(value v) {
-  CAMLparam1(v);
-  CAMLlocal1(res);
-  res = caml_alloc_small(2, 0);
-  Field(res, 0) = caml_copy_double(lambda);
-  Field(res, 1) = Val_long(callstack_size);
-  CAMLreturn(res);
-}
-
-static value memprof_callback = Val_unit;
-
-CAMLprim value caml_memprof_register_callback(value callback) {
-  CAMLparam1(callback);
-  int was0 = memprof_callback == Val_unit;
-  memprof_callback = callback;
-  if(was0)
-    caml_register_global_root(&memprof_callback);
   CAMLreturn(Val_unit);
 }
 
@@ -218,9 +202,18 @@ static value capture_callstack(int avoid_gc) {
   return caml_get_current_callstack_impl(callstack_size, avoid_gc);
 }
 
-static value do_callback(intnat wosize, int32_t occurences, value callstack) {
-  return caml_callback3_exn(memprof_callback, Val_long(wosize),
-                            Val_long(occurences), callstack);
+enum ml_callback_kind {
+  Minor = Val_long(0),
+  Major = Val_long(1),
+  Major_postponed = Val_long(2),
+  Serialized = Val_long(3)
+};
+
+static value do_callback(intnat wosize, int32_t occurences, value callstack,
+                         enum ml_callback_kind cb_kind) {
+  value args[4] =
+    { cb_kind, Val_long(wosize), Val_long(occurences), callstack };
+  return caml_callbackN_exn(memprof_callback, 4, args);
 }
 
 void caml_memprof_track_young(uintnat wosize) {
@@ -230,25 +223,26 @@ void caml_memprof_track_young(uintnat wosize) {
   double rest =
     (caml_memprof_young_limit - caml_young_ptr) - next_sample_round;
 
-  Assert(rest > 0);
+  Assert(rest > 0 && lambda > 0);
+
+  int32_t occurences = mt_generate_poisson(rest*lambda) + 1;
 
   caml_young_ptr += whsize;
   //We should not allocate before this point
 
   caml_memprof_handle_postponed();
 
-  int32_t occurences = mt_generate_poisson(rest*lambda) + 1;
   double old_lambda = lambda;
   set_lambda(0);
   callstack = capture_callstack(0);
-  ephe = do_callback(wosize, occurences, callstack);
+  ephe = do_callback(wosize, occurences, callstack, Minor);
   set_lambda(old_lambda); // Calls caml_memprof_renew_minor_sample
   if (Is_exception_result(ephe)) caml_raise(Extract_exception(ephe));
 
   if(caml_young_ptr - whsize < caml_young_trigger)
     caml_gc_dispatch();
 
-  // Starting from this point, we should not allocate
+  // We should not allocate after this point
   caml_young_ptr -= whsize;
   shift_sample(whsize);
   caml_ephe_set_key(ephe, Val_long(0), Val_hp(caml_young_ptr));
@@ -262,14 +256,15 @@ value caml_memprof_track_alloc_shr(value block) {
 
   Assert(Is_in_heap(block));
 
+  int32_t occurences = mt_generate_poisson(lambda * Whsize_val(block));
+
   caml_memprof_handle_postponed();
 
-  int32_t occurences = mt_generate_poisson(lambda * Whsize_val(block));
   if(occurences > 0) {
     double old_lambda = lambda;
     set_lambda(0);
     callstack = capture_callstack(0);
-    ephe = do_callback(Wosize_val(block), occurences, callstack);
+    ephe = do_callback(Wosize_val(block), occurences, callstack, Major);
     set_lambda(old_lambda);
     if (Is_exception_result(ephe)) caml_raise(Extract_exception(ephe));
 
@@ -338,7 +333,8 @@ void caml_memprof_handle_postponed() {
   set_lambda(0);
   // We then do the actual iteration on postponed blocks
   while(p != NULL) {
-    ephe = do_callback(Wosize_val(p->block), p->occurences, p->callstack);
+    ephe = do_callback(Wosize_val(p->block), p->occurences, p->callstack,
+                       Major_postponed);
     if (Is_exception_result(ephe)) {
       set_lambda(old_lambda);
       // In the case of an exception, we just forget the entire list.
@@ -418,7 +414,7 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
   if(sz == 0)
     CAMLreturn0;
 
-  // Before this point, we should not allocate
+  // We should not allocate before this point
   CAMLxparamN(sampled, j);
 
   caml_memprof_handle_postponed();
@@ -427,7 +423,8 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
   set_lambda(0);
   callstack = capture_callstack(0);
   for(i = 0; i < j; i++) {
-    ephe = do_callback(Wosize_val(sampled[i]), occurences[i], callstack);
+    ephe = do_callback(Wosize_val(sampled[i]), occurences[i], callstack,
+                       Serialized);
     if (Is_exception_result(ephe)) {
       free(sampled);
       free(occurences);
@@ -465,8 +462,6 @@ void caml_memprof_call_gc_end(double next_sample) {
   unsigned short* block_sizes;
   CAMLparam0();
   CAMLlocal3(callstack, callstack_cur, tmp);
-
-  caml_memprof_handle_postponed();
 
   if(lambda == 0)
     CAMLreturn0;
@@ -521,6 +516,8 @@ void caml_memprof_call_gc_end(double next_sample) {
 
     Assert(offs == tot_whsize);
 
+    caml_memprof_handle_postponed();
+
     CAMLlocalN(ephes, n_samples);
     double old_lambda = lambda;
     set_lambda(0);
@@ -539,7 +536,7 @@ void caml_memprof_call_gc_end(double next_sample) {
       }
 
       ephes[i] =
-        do_callback(samples[i].sz, samples[i].occurences, callstack_cur);
+        do_callback(samples[i].sz, samples[i].occurences, callstack_cur, Minor);
       if(Is_exception_result(ephes[i])) {
         free(samples);
         set_lambda(old_lambda);
@@ -550,8 +547,8 @@ void caml_memprof_call_gc_end(double next_sample) {
 
     if(caml_young_ptr - tot_whsize < caml_young_trigger)
       caml_gc_dispatch();
+    // We should not allocate after this point
 
-    // Starting from this point, we should not allocate
     for(i = 0; i < n_samples; i++) {
       value v = Val_hp(caml_young_ptr - samples[i].offs);
 

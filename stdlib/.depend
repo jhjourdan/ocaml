@@ -27,7 +27,7 @@ listLabels.cmi :
 list.cmi :
 map.cmi :
 marshal.cmi :
-memprof.cmi : printexc.cmi
+memprof.cmi : printexc.cmi obj.cmi ephemeron.cmi
 moreLabels.cmi : set.cmi map.cmi hashtbl.cmi
 nativeint.cmi :
 obj.cmi : int32.cmi
