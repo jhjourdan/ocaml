@@ -522,8 +522,11 @@ CAMLexport value caml_alloc_shr_effect (mlsize_t wosize, tag_t tag,
     res = caml_check_urgent_gc(res);
     Tag_val(res) = tag;
     return res;
-  } else
+  } else {
+    if(effect >= CAML_ALLOC_EFFECT_TRACK)
+      caml_memprof_postpone_track_alloc_shr(Val_hp (hp));
     return Val_hp (hp);
+  }
 }
 
 CAMLexport value caml_alloc_shr (mlsize_t wosize, tag_t tag) {

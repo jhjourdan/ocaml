@@ -70,17 +70,17 @@ extern char caml_system__code_begin, caml_system__code_end;
 
 void caml_garbage_collection(void)
 {
-  caml_young_limit =
-    caml_memprof_young_limit < caml_young_trigger ?
-    caml_young_trigger : caml_memprof_young_limit;
-
+  double memprof_exceeded_by = caml_memprof_call_gc_begin();
   if (caml_requested_major_slice || caml_requested_minor_gc ||
       caml_young_ptr - caml_young_trigger < Max_young_whsize){
     caml_gc_dispatch ();
+    caml_memprof_handle_postponed();
+    caml_process_pending_signals();
+  } else {
+    caml_memprof_handle_postponed();
+    caml_process_pending_signals();
+    caml_memprof_call_gc_end(memprof_exceeded_by);
   }
-  caml_process_pending_signals();
-
-  caml_memprof_call_gc_end();
 }
 
 DECLARE_SIGNAL_HANDLER(handle_signal)

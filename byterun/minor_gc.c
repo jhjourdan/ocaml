@@ -177,7 +177,7 @@ void caml_set_minor_heap_size (asize_t bsz)
   reset_table ((struct generic_table *) &caml_ephe_ref_table);
   reset_table ((struct generic_table *) &caml_custom_table);
 
-  caml_memprof_reinit();
+  caml_memprof_renew_minor_sample();
 }
 
 static value oldify_todo_list = 0;
@@ -410,7 +410,7 @@ void caml_empty_minor_heap (void)
     caml_stat_promoted_words += caml_allocated_words - prev_alloc_words;
     CAML_INSTR_INT ("minor/promoted#", caml_allocated_words - prev_alloc_words);
     ++ caml_stat_minor_collections;
-    caml_memprof_minor_gc_update();
+    caml_memprof_renew_minor_sample();
     if (caml_minor_gc_end_hook != NULL) (*caml_minor_gc_end_hook) ();
   }else{
     caml_final_empty_young ();

@@ -22,6 +22,7 @@
 #include "caml/osdeps.h"
 #include "caml/signals.h"
 #include "caml/signals_machdep.h"
+#include "caml/memprof.h"
 
 #ifndef NSIG
 #define NSIG 64
@@ -41,6 +42,7 @@ void caml_process_event(void)
   void (*async_action)(void);
 
   caml_check_urgent_gc (Val_unit);
+  caml_memprof_handle_postponed();
   caml_process_pending_signals();
   async_action = caml_async_action_hook;
   if (async_action != NULL) {
