@@ -18,8 +18,9 @@ type sample = {
     callstack : Printexc.raw_backtrace
 }
 
+let min_buf_size = 1024
 let empty_ephe = K1.create ()
-let samples = ref [| empty_ephe |]
+let samples = ref (Array.make min_buf_size empty_ephe)
 let n_samples = ref 0
 
 let reset () =
@@ -37,8 +38,9 @@ let clean () =
   let new_sz = aux 0 0 in
   Array.fill s new_sz (sz - new_sz) empty_ephe;
   n_samples := new_sz;
-  if 8 * max !n_samples 1024 <= Array.length s then
-    samples := Array.sub s 0 (2 * max !n_samples 1024)
+  if 8 * !n_samples <= Array.length s &&
+     Array.length s > min_buf_size then
+    samples := Array.sub s 0 (max min_buf_size (2 * !n_samples))
 
 let push e =
   while !n_samples = Array.length !samples do
