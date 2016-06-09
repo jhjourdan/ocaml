@@ -129,12 +129,6 @@ void caml_update_young_limit(void) {
   caml_young_limit =
     caml_memprof_young_limit < caml_young_trigger ?
     caml_young_trigger : caml_memprof_young_limit;
-
-#ifdef NATIVE_CODE
-  if(caml_requested_minor_gc || caml_requested_major_slice ||
-     caml_signals_are_pending)
-    caml_young_limit = caml_young_alloc_end;
-#endif
 }
 
 void caml_set_minor_heap_size (asize_t bsz)
