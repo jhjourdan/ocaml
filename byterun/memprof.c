@@ -523,7 +523,7 @@ double caml_memprof_call_gc_begin(void) {
     return 0;
 }
 
-void caml_memprof_call_gc_end(double next_sample) {
+void caml_memprof_call_gc_end(double exceeded_by) {
   uintnat pc = caml_last_return_address;
   char * sp = caml_bottom_of_stack;
   frame_descr * d;
@@ -552,8 +552,8 @@ void caml_memprof_call_gc_end(double next_sample) {
   for(i = 0; i < num_blocks; i++)
     tot_whsize += block_sizes[i];
 
-  if(next_sample > 0) {
-    Assert(next_sample <= tot_whsize);
+  if(exceeded_by > 0) {
+    double next_sample = tot_whsize - exceeded_by;
 
     uintnat offs = 0;
     struct smp { uintnat offs, sz, alloc_frame_pos; int32_t occurences; }
