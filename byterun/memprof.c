@@ -21,10 +21,19 @@ static double lambda_rec = INFINITY;
 static intnat callstack_size = 0;
 static value memprof_callback = Val_unit;
 
-static double next_sample_round;
+/* Position of the next sample in the minor heap. Equals
+   [caml_young_alloc_start] if no sampling is planned in the current
+   minor heap. */
 value* caml_memprof_young_limit;
 
+/* The continuous position of the next minor sample within the sampled
+   word. Always in [0, 1[. */
+static double next_sample_round;
+
+/* Whether memprof has been initialized.  */
 static int init = 0;
+
+/**** Statistical sampling ****/
 
 /* Taken from :
    https://github.com/jhjourdan/SIMD-math-prims
@@ -147,25 +156,7 @@ static int32_t mt_generate_poisson(double lambda) {
   }
 }
 
-void caml_memprof_renew_minor_sample(void) {
-  double exp = mt_generate_exponential();
-  uintnat max = caml_young_ptr - caml_young_alloc_start, exp_int;
-  if(exp < max  && (exp_int = (uintnat)exp) < max) {
-    caml_memprof_young_limit = caml_young_ptr - exp_int;
-    next_sample_round = exp - exp_int;
-    Assert(0 <= next_sample_round && next_sample_round < 1);
-  } else
-    caml_memprof_young_limit = caml_young_alloc_start;
-  caml_update_young_limit();
-}
-
-static void shift_sample(uintnat n) {
-  if(caml_memprof_young_limit - caml_young_alloc_start > n)
-    caml_memprof_young_limit -= n;
-  else
-    caml_memprof_young_limit = caml_young_alloc_start;
-  caml_update_young_limit();
-}
+/**** Interface with the OCaml code. ****/
 
 void set_lambda(double l) {
   lambda = l;
@@ -198,10 +189,7 @@ CAMLprim value caml_memprof_set(value v) {
   CAMLreturn(Val_unit);
 }
 
-static value capture_callstack(int avoid_gc) {
-  return caml_get_current_callstack_impl(callstack_size, avoid_gc);
-}
-
+/* Cf. Memprof.callstack_kind */
 enum ml_callback_kind {
   Minor = Val_long(0),
   Major = Val_long(1),
@@ -211,11 +199,50 @@ enum ml_callback_kind {
 
 static value do_callback(intnat wosize, int32_t occurences, value callstack,
                          enum ml_callback_kind cb_kind) {
+  Assert(occurences > 0);
   value args[4] =
     { cb_kind, Val_long(wosize), Val_long(occurences), callstack };
   return caml_callbackN_exn(memprof_callback, 4, args);
 }
 
+/**** Sampling procedures ****/
+
+/* Shifts the next sample in the minor heap by [n] words. Essentially,
+   this tells the sampler to ignore the next [n] words of the minor
+   heap. */
+static void shift_sample(uintnat n) {
+  if(caml_memprof_young_limit - caml_young_alloc_start > n)
+    caml_memprof_young_limit -= n;
+  else
+    caml_memprof_young_limit = caml_young_alloc_start;
+  caml_update_young_limit();
+}
+
+/* Renew the next sample in the minor heap. This needs to be called
+   after each minor sampling and after each minor collection. In
+   practice, because we disable sampling during callbacks, this is
+   called at each sampling (including major ones). These extra calls
+   do not change the statistical properties of the sampling because of
+   the memorylessness of the exponential distribution. */
+void caml_memprof_renew_minor_sample(void) {
+  double exp = mt_generate_exponential();
+  uintnat max = caml_young_ptr - caml_young_alloc_start, exp_int;
+  if(exp < max  && (exp_int = (uintnat)exp) < max) {
+    caml_memprof_young_limit = caml_young_ptr - exp_int;
+    next_sample_round = exp - exp_int;
+    Assert(0 <= next_sample_round && next_sample_round < 1);
+  } else
+    caml_memprof_young_limit = caml_young_alloc_start;
+  caml_update_young_limit();
+}
+
+static value capture_callstack(int avoid_gc) {
+  return caml_get_current_callstack_impl(callstack_size, avoid_gc);
+}
+
+/* Called when exceeding the threshold for the next sample in the
+   minor heap, from the C code (the handling is different when call
+   from natively compiled OCaml code). */
 void caml_memprof_track_young(uintnat wosize) {
   CAMLparam0();
   CAMLlocal2(ephe, callstack);
@@ -236,7 +263,7 @@ void caml_memprof_track_young(uintnat wosize) {
   set_lambda(0);
   callstack = capture_callstack(0);
   ephe = do_callback(wosize, occurences, callstack, Minor);
-  set_lambda(old_lambda); // Calls caml_memprof_renew_minor_sample
+  set_lambda(old_lambda); // Calls [caml_memprof_renew_minor_sample]
   if (Is_exception_result(ephe)) caml_raise(Extract_exception(ephe));
 
   if(caml_young_ptr - whsize < caml_young_trigger)
@@ -244,12 +271,17 @@ void caml_memprof_track_young(uintnat wosize) {
 
   // We should not allocate after this point
   caml_young_ptr -= whsize;
-  shift_sample(whsize);
-  caml_ephe_set_key(ephe, Val_long(0), Val_hp(caml_young_ptr));
+  shift_sample(whsize); // Make sure this block is not going th be
+                        // sampled again.
+  if(Is_block(ephe))
+    caml_ephe_set_key(Field(ephe, 0), Val_long(0), Val_hp(caml_young_ptr));
 
   CAMLreturn0;
 }
 
+/* Called when allocating in the major heap, except when allocating
+   during a minor collection or for a serialization, or when we do not
+   want to call the GC. */
 value caml_memprof_track_alloc_shr(value block) {
   CAMLparam1(block);
   CAMLlocal2(ephe, callstack);
@@ -268,7 +300,8 @@ value caml_memprof_track_alloc_shr(value block) {
     set_lambda(old_lambda);
     if (Is_exception_result(ephe)) caml_raise(Extract_exception(ephe));
 
-    caml_ephe_set_key(ephe, Val_long(0), block);
+    if(Is_block(ephe))
+      caml_ephe_set_key(Field(ephe, 0), Val_long(0), block);
   }
 
   CAMLreturn (block);
@@ -281,6 +314,12 @@ struct postponed_block {
   struct postponed_block* next;
 } *postponed_head = NULL;
 
+/* If [caml_alloc_shr] is called in a context where calling the GC
+   should be avoided (historically, alloc_shr does not call the GC),
+   we postpone the call of the callback. This function is analoguous
+   to [caml_memprof_track_alloc_shr], except that if anything is
+   sampled, it stores the block in the todo-list so that the callback
+   call is performed later. */
 void caml_memprof_postpone_track_alloc_shr(value block) {
   int32_t occurences = mt_generate_poisson(lambda * Whsize_val(block));
   Assert(Is_in_heap(block));
@@ -290,7 +329,10 @@ void caml_memprof_postpone_track_alloc_shr(value block) {
     if(pb == NULL) return;
     pb->block = block;
     caml_register_generational_global_root(&pb->block);
+    double old_lambda = lambda;
+    set_lambda(0);
     pb->callstack = capture_callstack(1);
+    set_lambda(old_lambda);
     caml_register_generational_global_root(&pb->callstack);
     pb->occurences = occurences;
     pb->next = postponed_head;
@@ -341,7 +383,8 @@ void caml_memprof_handle_postponed() {
       while(p != NULL) NEXT_P;
       caml_raise(Extract_exception(ephe));
     }
-    caml_ephe_set_key(ephe, Val_long(0), p->block);
+    if(Is_block(ephe))
+      caml_ephe_set_key(Field(ephe, 0), Val_long(0), p->block);
     NEXT_P;
   }
   set_lambda(old_lambda);
@@ -431,7 +474,8 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
       set_lambda(old_lambda);
       caml_raise(Extract_exception(ephe));
     }
-    caml_ephe_set_key(ephe, Val_long(0), sampled[i]);
+    if(Is_block(ephe))
+      caml_ephe_set_key(Field(ephe, 0), Val_long(0), sampled[i]);
   }
 
   free(sampled);
@@ -441,6 +485,34 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
 }
 
 #ifdef NATIVE_CODE
+
+/* Sampling in the minor heap for native code is different from
+   sampling for C-allocated blocks, because the compiler back-end
+   merge allocations for better performance. Therefore, we need to
+   revert this mechanism and recover the pointers to the different
+   blocks being alocated. */
+
+/* Allocation in compiled OCaml code proceeds by retrying until
+   [caml_young_ptr] is under [caml_young_limit]. If there are several
+   tries, we need to make sure that the block is sampled only once. To
+   that end:
+     - The sampling is ignored if the allocation fails because of the
+       minor heap being full (or if a gc minor/major collection has
+       been requested).
+
+     - As soon as the sampling is proceeded (i.e., we enter
+       [caml_memprof_call_gc_end]), we make sure there is enough room
+       in the minor heap and we shift the threshold so that the block
+       is not going to be sampled. Note that because a signal can (in
+       theory) be raised just before the allocation, this is not
+       guaranteed that the allocation will actually take place even
+       with these precautions, but we ignore this eventuallity.
+
+   See [caml_garbage_collection] in signals_asm.c.
+ */
+
+/* If the allocation has failed because the block has to be sampled,
+   we record by how much the threshold has been exceeded. */
 double caml_memprof_call_gc_begin(void) {
   intnat exceeded_int = caml_memprof_young_limit - caml_young_ptr;
   if(exceeded_int > 0) {
@@ -545,7 +617,10 @@ void caml_memprof_call_gc_end(double next_sample) {
     }
     set_lambda(old_lambda); // Calls caml_memprof_renew_minor_sample
 
-    if(caml_young_ptr - tot_whsize < caml_young_trigger)
+    // Do everything we can to make sure that the allocation will take
+    // place.
+    if(caml_requested_major_slice || caml_requested_minor_gc ||
+       caml_young_ptr - caml_young_trigger < tot_whsize)
       caml_gc_dispatch();
     // We should not allocate after this point
 
@@ -555,7 +630,8 @@ void caml_memprof_call_gc_end(double next_sample) {
       /* It is important not to allocate anything or call the GC between
        * this point and the re-execution of the allocation code in assembly,
        * because blk.block would then be incorrect. */
-      caml_ephe_set_key(ephes[i], Val_long(0), v);
+      if(Is_block(ephes[i]))
+        caml_ephe_set_key(Field(ephes[i], 0), Val_long(0), v);
 
       /* It is *not* garanteed that this block will actually be used,
        * because a signal can interrupt the allocation in the assembly
@@ -566,7 +642,9 @@ void caml_memprof_call_gc_end(double next_sample) {
     }
 
     free(samples);
-  }
+  } else if(caml_requested_major_slice || caml_requested_minor_gc ||
+            caml_young_ptr - tot_whsize < caml_young_trigger)
+    caml_gc_dispatch();
 
  abort:
   /* We prevent the next allocation to be sampled, as it already had its

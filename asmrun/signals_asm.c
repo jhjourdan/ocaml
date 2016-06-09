@@ -77,6 +77,7 @@ void caml_garbage_collection(void)
     caml_memprof_handle_postponed();
     caml_process_pending_signals();
   } else {
+    /* See comment above [caml_memprof_call_gc_begin] in memprof.c */
     caml_memprof_handle_postponed();
     caml_process_pending_signals();
     caml_memprof_call_gc_end(memprof_exceeded_by);

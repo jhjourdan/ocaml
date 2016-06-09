@@ -34,16 +34,26 @@
 extern "C" {
 #endif
 
+/* The function, [caml_alloc_shr_effect], that does an allocation in
+   the major heap, can be called in 4 modes, depending on the kind of
+   effects it is allowed to perform. */
 enum caml_alloc_effect {
-  CAML_ALLOC_EFFECT_NONE,
-  CAML_ALLOC_EFFECT_RAISE_OOM,
-  CAML_ALLOC_EFFECT_TRACK,
-  CAML_ALLOC_EFFECT_GC
+  CAML_ALLOC_EFFECT_NONE,       /* No effect. Returns 0 in case of OOM. */
+  CAML_ALLOC_EFFECT_RAISE_OOM,  /* As previously, but raises the OOM
+                                   Ocaml exception if necessary */
+  CAML_ALLOC_EFFECT_TRACK,      /* As previoulsy, and the allocation is
+                                   taken into account by memprof. */
+  CAML_ALLOC_EFFECT_GC          /* As previously, and the GC may
+                                   possibly get called. */
 };
 
-CAMLextern value caml_alloc_shr (mlsize_t wosize, tag_t);
 CAMLextern value caml_alloc_shr_effect (mlsize_t wosize, tag_t,
                                         enum caml_alloc_effect effect);
+
+/* [caml_alloc_shr] uses [CAML_ALLOC_EFFECT_TRACK], which should be
+   compatible with historical behavior. */
+CAMLextern value caml_alloc_shr (mlsize_t wosize, tag_t);
+
 CAMLextern void caml_adjust_gc_speed (mlsize_t, mlsize_t);
 CAMLextern void caml_alloc_dependent_memory (mlsize_t bsz);
 CAMLextern void caml_free_dependent_memory (mlsize_t bsz);
