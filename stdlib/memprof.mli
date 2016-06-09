@@ -38,6 +38,9 @@ type 'a callback = callback_kind -> int -> int -> Printexc.raw_backtrace ->
    A callback returns an option over an ephemeron whose key is set
    to the allocated block for further tracking.
 
+   The sampling is temporarily disabled when calling the callback. So
+   it need not be reentrant.
+
    Note that when the callback kind is [Major_postponed], the callback
    needed to be postponed after the actual allocation. Therefore, the
    context of the callback is maybe slightly different than
