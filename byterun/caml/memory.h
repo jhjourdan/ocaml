@@ -100,7 +100,8 @@ int caml_page_table_initialize(mlsize_t bytesize);
 #define DEBUG_clear(result, wosize)
 #endif
 
-#define Alloc_small(result, wosize, tag) do{    CAMLassert ((wosize) >= 1); \
+#define Alloc_small_impl(result, wosize, tag, track)                        \
+                                         do{    CAMLassert ((wosize) >= 1); \
                                           CAMLassert ((tag_t) (tag) < 256); \
                                  CAMLassert ((wosize) <= Max_young_wosize); \
   caml_young_ptr -= Whsize_wosize (wosize);                                 \
@@ -114,15 +115,21 @@ int caml_page_table_initialize(mlsize_t bytesize);
       caml_young_ptr -= Whsize_wosize (wosize);                             \
     }                                                                       \
     if(caml_young_ptr < caml_memprof_young_limit){                          \
-      Setup_for_track_gc;                                                   \
-      caml_memprof_track_young(wosize);                                     \
-      Restore_after_track_gc;                                               \
+      if(track) {                                                           \
+        Setup_for_track_gc;                                                 \
+        caml_memprof_track_young(wosize);                                   \
+        Restore_after_track_gc;                                             \
+      } else                                                                \
+        caml_memprof_renew_minor_sample();                                  \
     }                                                                       \
   }                                                                         \
   Hd_hp (caml_young_ptr) = Make_header ((wosize), (tag), Caml_black);       \
   (result) = Val_hp (caml_young_ptr);                                       \
   DEBUG_clear ((result), (wosize));                                         \
 }while(0)
+
+#define Alloc_small(result, wosize, tag)        \
+  Alloc_small_impl(result, wosize, tag, 1)      \
 
 /* Deprecated alias for [caml_modify] */
 

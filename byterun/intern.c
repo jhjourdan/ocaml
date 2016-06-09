@@ -581,10 +581,16 @@ static void intern_alloc(mlsize_t whsize, mlsize_t num_objects)
     /* this is a specialised version of caml_alloc from alloc.c */
     if (wosize == 0){
       intern_block = Atom (String_tag);
-    /* TODO : find an easy way to alloc in the minor heap here. */
-    /* The problem is that we do not want memprof to sample it. */
-    /* }else if (wosize <= Max_young_wosize){ */
-    /*   intern_block = caml_alloc_small (wosize, String_tag); */
+    }else if (wosize <= Max_young_wosize){
+#define Setup_for_gc
+#define Restore_after_gc
+#define Setup_for_track_gc
+#define Restore_after_track_gc
+      Alloc_small_impl(intern_block, wosize, String_tag, 0);
+#undef Setup_for_gc
+#undef Restore_after_gc
+#undef Setup_for_track_gc
+#undef Restore_after_track_gc
     }else{
       intern_block = caml_alloc_shr_effect(wosize, String_tag,
                                            CAML_ALLOC_EFFECT_NONE);

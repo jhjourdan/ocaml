@@ -70,11 +70,15 @@ sp is a local copy of the global variable caml_extern_sp. */
   { sp -= 2; sp[0] = accu; sp[1] = env; caml_extern_sp = sp; }
 #define Restore_after_gc \
   { accu = sp[0]; env = sp[1]; sp += 2; }
+/* TODO : make sure that this is what we want. At least this saves
+   what needs to be saved and produces relevent backtraces, but is
+   there anything else we have to take care of ? */
 #define Setup_for_track_gc \
   { sp -= 3; sp[0] = accu; sp[1] = env; \
     sp[2] = (value) pc; caml_extern_sp = sp; }
 #define Restore_after_track_gc \
-  { sp = caml_extern_sp; accu = sp[0]; env = sp[1]; pc = (code_t) sp[2]; sp += 3; }
+  { sp = caml_extern_sp; accu = sp[0]; env = sp[1]; \
+    pc = (code_t) sp[2]; sp += 3; }
 #define Setup_for_c_call \
   { saved_pc = pc; *--sp = env; caml_extern_sp = sp; }
 #define Restore_after_c_call \
