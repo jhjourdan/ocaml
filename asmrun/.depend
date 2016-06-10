@@ -243,7 +243,8 @@ memprof.o: memprof.c ../byterun/caml/memprof.h ../byterun/caml/roots.h \
  ../byterun/caml/minor_gc.h ../byterun/caml/address_class.h \
  ../byterun/caml/backtrace_prim.h ../byterun/caml/backtrace.h \
  ../byterun/caml/exec.h ../byterun/caml/fail.h ../byterun/caml/alloc.h \
- ../byterun/caml/callback.h ../byterun/caml/weak.h stack.h
+ ../byterun/caml/callback.h ../byterun/caml/weak.h \
+ ../byterun/caml/signals.h stack.h
 meta.o: meta.c ../byterun/caml/alloc.h ../byterun/caml/misc.h \
  ../byterun/caml/config.h ../byterun/caml/../../config/m.h \
  ../byterun/caml/../../config/s.h ../byterun/caml/mlvalues.h \
@@ -641,7 +642,8 @@ memprof.p.o: memprof.c ../byterun/caml/memprof.h ../byterun/caml/roots.h \
  ../byterun/caml/minor_gc.h ../byterun/caml/address_class.h \
  ../byterun/caml/backtrace_prim.h ../byterun/caml/backtrace.h \
  ../byterun/caml/exec.h ../byterun/caml/fail.h ../byterun/caml/alloc.h \
- ../byterun/caml/callback.h ../byterun/caml/weak.h stack.h
+ ../byterun/caml/callback.h ../byterun/caml/weak.h \
+ ../byterun/caml/signals.h stack.h
 meta.p.o: meta.c ../byterun/caml/alloc.h ../byterun/caml/misc.h \
  ../byterun/caml/config.h ../byterun/caml/../../config/m.h \
  ../byterun/caml/../../config/s.h ../byterun/caml/mlvalues.h \
@@ -1039,7 +1041,8 @@ memprof.d.o: memprof.c ../byterun/caml/memprof.h ../byterun/caml/roots.h \
  ../byterun/caml/minor_gc.h ../byterun/caml/address_class.h \
  ../byterun/caml/backtrace_prim.h ../byterun/caml/backtrace.h \
  ../byterun/caml/exec.h ../byterun/caml/fail.h ../byterun/caml/alloc.h \
- ../byterun/caml/callback.h ../byterun/caml/weak.h stack.h
+ ../byterun/caml/callback.h ../byterun/caml/weak.h \
+ ../byterun/caml/signals.h stack.h
 meta.d.o: meta.c ../byterun/caml/alloc.h ../byterun/caml/misc.h \
  ../byterun/caml/config.h ../byterun/caml/../../config/m.h \
  ../byterun/caml/../../config/s.h ../byterun/caml/mlvalues.h \
@@ -1437,7 +1440,8 @@ memprof.i.o: memprof.c ../byterun/caml/memprof.h ../byterun/caml/roots.h \
  ../byterun/caml/minor_gc.h ../byterun/caml/address_class.h \
  ../byterun/caml/backtrace_prim.h ../byterun/caml/backtrace.h \
  ../byterun/caml/exec.h ../byterun/caml/fail.h ../byterun/caml/alloc.h \
- ../byterun/caml/callback.h ../byterun/caml/weak.h stack.h
+ ../byterun/caml/callback.h ../byterun/caml/weak.h \
+ ../byterun/caml/signals.h stack.h
 meta.i.o: meta.c ../byterun/caml/alloc.h ../byterun/caml/misc.h \
  ../byterun/caml/config.h ../byterun/caml/../../config/m.h \
  ../byterun/caml/../../config/s.h ../byterun/caml/mlvalues.h \

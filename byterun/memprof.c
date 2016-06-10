@@ -197,12 +197,20 @@ enum ml_alloc_kind {
   Serialized = Val_long(3)
 };
 
-static value do_callback(intnat wosize, int32_t occurences, value callstack,
-                         enum ml_alloc_kind cb_kind) {
+static value do_callback(tag_t tag, intnat wosize, int32_t occurences,
+                         value callstack, enum ml_alloc_kind cb_kind) {
   Assert(occurences > 0);
-  value args[4] =
-    { cb_kind, Val_long(wosize), Val_long(occurences), callstack };
-  return caml_callbackN_exn(memprof_callback, 4, args);
+  CAMLparam1(callstack);
+  CAMLlocal1(sample_info);
+
+  sample_info = caml_alloc_small(5, 0);
+  Field(sample_info, 0) = Val_long(occurences);
+  Field(sample_info, 1) = cb_kind;
+  Field(sample_info, 2) = Val_long(tag);
+  Field(sample_info, 3) = Val_long(wosize);
+  Field(sample_info, 4) = callstack;
+
+  CAMLreturn(caml_callback_exn(memprof_callback, sample_info));
 }
 
 /**** Sampling procedures ****/
@@ -243,7 +251,7 @@ static value capture_callstack(int avoid_gc) {
 /* Called when exceeding the threshold for the next sample in the
    minor heap, from the C code (the handling is different when call
    from natively compiled OCaml code). */
-void caml_memprof_track_young(uintnat wosize) {
+void caml_memprof_track_young(tag_t tag, uintnat wosize) {
   CAMLparam0();
   CAMLlocal2(ephe, callstack);
   uintnat whsize = Whsize_wosize(wosize);
@@ -262,7 +270,7 @@ void caml_memprof_track_young(uintnat wosize) {
   double old_lambda = lambda;
   set_lambda(0);
   callstack = capture_callstack(0);
-  ephe = do_callback(wosize, occurences, callstack, Minor);
+  ephe = do_callback(tag, wosize, occurences, callstack, Minor);
   set_lambda(old_lambda); // Calls [caml_memprof_renew_minor_sample]
   if (Is_exception_result(ephe)) caml_raise(Extract_exception(ephe));
 
@@ -282,7 +290,7 @@ void caml_memprof_track_young(uintnat wosize) {
 /* Called when allocating in the major heap, except when allocating
    during a minor collection or for a serialization, or when we do not
    want to call the GC. */
-value caml_memprof_track_alloc_shr(value block) {
+value caml_memprof_track_alloc_shr(tag_t tag, value block) {
   CAMLparam1(block);
   CAMLlocal2(ephe, callstack);
 
@@ -296,7 +304,7 @@ value caml_memprof_track_alloc_shr(value block) {
     double old_lambda = lambda;
     set_lambda(0);
     callstack = capture_callstack(0);
-    ephe = do_callback(Wosize_val(block), occurences, callstack, Major);
+    ephe = do_callback(tag, Wosize_val(block), occurences, callstack, Major);
     set_lambda(old_lambda);
     if (Is_exception_result(ephe)) caml_raise(Extract_exception(ephe));
 
@@ -375,8 +383,8 @@ void caml_memprof_handle_postponed() {
   set_lambda(0);
   // We then do the actual iteration on postponed blocks
   while(p != NULL) {
-    ephe = do_callback(Wosize_val(p->block), p->occurences, p->callstack,
-                       Major_postponed);
+    ephe = do_callback(Tag_val(p->block), Wosize_val(p->block),
+                       p->occurences, p->callstack, Major_postponed);
     if (Is_exception_result(ephe)) {
       set_lambda(old_lambda);
       // In the case of an exception, we just forget the entire list.
@@ -466,8 +474,8 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
   set_lambda(0);
   callstack = capture_callstack(0);
   for(i = 0; i < j; i++) {
-    ephe = do_callback(Wosize_val(sampled[i]), occurences[i], callstack,
-                       Serialized);
+    ephe = do_callback(Tag_val(sampled[i]), Wosize_val(sampled[i]),
+                       occurences[i], callstack, Serialized);
     if (Is_exception_result(ephe)) {
       free(sampled);
       free(occurences);
@@ -531,7 +539,7 @@ void caml_memprof_call_gc_end(double exceeded_by) {
   uintnat i, j;
   uintnat tot_whsize;
   unsigned short num_blocks;
-  unsigned short* block_sizes;
+  struct block_info { unsigned short tag; unsigned short sz; } *block_infos;
   CAMLparam0();
   CAMLlocal3(callstack, callstack_cur, tmp);
 
@@ -545,19 +553,21 @@ void caml_memprof_call_gc_end(double exceeded_by) {
              sizeof(short) * d->num_live + sizeof(frame_descr *) - 1)
             & -sizeof(frame_descr *);
 
-  num_blocks = *(unsigned short*)infoptr;
-  block_sizes = ((unsigned short*)infoptr) + 1;
+  num_blocks = *(uint32_t*)infoptr;
+  block_infos = (struct block_info*)(((uint32_t*)infoptr) + 1);
 
   tot_whsize = 0;
   for(i = 0; i < num_blocks; i++)
-    tot_whsize += block_sizes[i];
+    tot_whsize += block_infos[i].sz;
 
   if(exceeded_by > 0) {
     double next_sample = tot_whsize - exceeded_by;
 
     uintnat offs = 0;
-    struct smp { uintnat offs, sz, alloc_frame_pos; int32_t occurences; }
-      *samples, *p;
+    struct smp {
+      unsigned short offs, tag, sz, alloc_frame_pos;
+      int32_t occurences;
+    } *samples, *p;
     uintnat sz = 2, n_samples = 0;
 
     samples = (struct smp*)malloc(sz*sizeof(struct smp));
@@ -565,8 +575,8 @@ void caml_memprof_call_gc_end(double exceeded_by) {
       goto abort;
 
     for(i = 0; i < num_blocks; i++) {
-      next_sample -= block_sizes[i];
-      offs += block_sizes[i];
+      next_sample -= block_infos[i].sz;
+      offs += block_infos[i].sz;
       if(next_sample < 0) {
         if(n_samples >= sz) {
           sz *= 2;
@@ -576,9 +586,10 @@ void caml_memprof_call_gc_end(double exceeded_by) {
         }
 
         samples[n_samples].offs = offs;
+        samples[n_samples].tag = block_infos[i].tag;
         samples[n_samples].occurences =
           mt_generate_poisson(-next_sample*lambda) + 1;
-        samples[n_samples].sz = Wosize_whsize(block_sizes[i]);
+        samples[n_samples].sz = Wosize_whsize(block_infos[i].sz);
         samples[n_samples].alloc_frame_pos = i;
         n_samples++;
 
@@ -607,8 +618,8 @@ void caml_memprof_call_gc_end(double exceeded_by) {
         Store_field(callstack_cur, 0, tmp);
       }
 
-      ephes[i] =
-        do_callback(samples[i].sz, samples[i].occurences, callstack_cur, Minor);
+      ephes[i] = do_callback(samples[i].tag, samples[i].sz,
+                             samples[i].occurences, callstack_cur, Minor);
       if(Is_exception_result(ephes[i])) {
         free(samples);
         set_lambda(old_lambda);

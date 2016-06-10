@@ -7,9 +7,9 @@ extern void caml_memprof_renew_minor_sample(void);
 
 extern value* caml_memprof_young_limit;
 
-extern value caml_memprof_track_alloc_shr(value block);
+extern value caml_memprof_track_alloc_shr(tag_t tag, value block);
 extern void caml_memprof_postpone_track_alloc_shr(value block);
-extern void caml_memprof_track_young(uintnat wosize);
+extern void caml_memprof_track_young(tag_t tag, uintnat wosize);
 extern void caml_memprof_track_interned(header_t* block, header_t* blockend);
 extern void caml_memprof_handle_postponed();
 

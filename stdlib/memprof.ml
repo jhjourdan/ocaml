@@ -4,8 +4,12 @@ type alloc_kind =
   | Major_postponed
   | Serialized
 
-type 'a callback = alloc_kind -> int -> int -> Printexc.raw_backtrace ->
-                   (Obj.t, 'a) Ephemeron.K1.t option
+type sample_info = {
+    n_samples: int; kind: alloc_kind; tag: int;
+    size: int; callstack: Printexc.raw_backtrace;
+}
+
+type 'a callback = sample_info -> (Obj.t, 'a) Ephemeron.K1.t option
 
 type 'a ctrl = {
     lambda : float;
@@ -15,7 +19,7 @@ type 'a ctrl = {
 
 let stopped_ctrl = {
     lambda = 0.; dumpped_callstack_size = 0;
-    callback = fun _ _ _ _ -> assert false
+    callback = fun _ -> assert false
 }
 
 external set_ctrl : 'a ctrl -> unit = "caml_memprof_set"

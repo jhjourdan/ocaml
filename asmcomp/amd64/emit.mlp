@@ -569,7 +569,7 @@ let emit_instr fallthrough i =
           I.movsd (arg i 0) (addressing addr REAL8 i 1)
       end
   | Lop(Ialloc l) ->
-      let n = List.fold_left (fun acc (n, _) -> acc + n) 0 l in
+      let n = List.fold_left (fun acc {alloc_size} -> acc + alloc_size) 0 l in
       if !fastcode_flag then begin
         let lbl_redo = new_label() in
         def_label lbl_redo;

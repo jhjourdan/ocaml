@@ -60,7 +60,7 @@ module type S = sig
   (* Insertion of target-specific code to relax operations that cannot be
      relaxed generically.  It is assumed that these rewrites do not change
      the size of out-of-line code (cf. branch_relaxation.mli). *)
-  val relax_allocation : l:(int * Debuginfo.t) list -> Linearize.instruction_desc
+  val relax_allocation : l:Mach.alloc_info list -> Linearize.instruction_desc
   val relax_intop_checkbound : unit -> Linearize.instruction_desc
   val relax_intop_imm_checkbound : bound:int -> Linearize.instruction_desc
   val relax_specific_op : Arch.specific_operation -> Linearize.instruction_desc

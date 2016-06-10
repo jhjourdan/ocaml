@@ -85,9 +85,9 @@ static frame_descr * next_frame_descr(frame_descr * d) {
     & -sizeof(frame_descr *);
   if ((d->frame_size & 3) == 1) nextd += 8;
   else if ((d->frame_size & 2) == 2) {
-    unsigned short num_blocks = (*(unsigned short*)nextd);
-    nextd += sizeof(short) + num_blocks * sizeof(short);
-    nextd = (nextd + sizeof(frame_descr *) - 1) & -sizeof(frame_descr *);
+    unsigned short num_blocks = (*(uint32_t*)nextd);
+    nextd += sizeof(uint32_t) + 2 * num_blocks * sizeof(short);
+    nextd = (nextd + sizeof(char *) - 1) & -sizeof(char *);
     if ((d->frame_size & 3) == 3)
       nextd += 8 * num_blocks;
   }

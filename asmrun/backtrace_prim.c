@@ -201,12 +201,12 @@ void caml_extract_location_info(value slot, /*out*/ struct caml_loc_info * li)
   /* Recover debugging info */
   infoptr = ((uintnat) d +
              sizeof(char *) + sizeof(short) + sizeof(short) +
-             sizeof(short) * d->num_live + sizeof(frame_descr *) - 1)
-            & -sizeof(frame_descr *);
+             sizeof(short) * d->num_live + sizeof(char *) - 1)
+            & -sizeof(char *);
   if ((d->frame_size & 2) == 2) {
-    unsigned short num_blocks = (*(unsigned short*)infoptr);
-    infoptr += sizeof(short) + num_blocks * sizeof(short);
-    infoptr = (infoptr + sizeof(frame_descr *) - 1) & -sizeof(frame_descr *);
+    unsigned short num_blocks = (*(uint32_t*)infoptr);
+    infoptr += sizeof(uint32_t) + 2 * num_blocks * sizeof(short);
+    infoptr = (infoptr + sizeof(char *) - 1) & -sizeof(char *);
     infoptr += 8 * alloc_id;
   }
 

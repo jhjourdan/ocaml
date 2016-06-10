@@ -518,7 +518,7 @@ CAMLexport value caml_alloc_shr_effect (mlsize_t wosize, tag_t tag,
 #endif
 
   if(effect >= CAML_ALLOC_EFFECT_GC) {
-    value res = caml_memprof_track_alloc_shr(Val_hp (hp));
+    value res = caml_memprof_track_alloc_shr(tag, Val_hp (hp));
     res = caml_check_urgent_gc(res);
     Tag_val(res) = tag;
     return res;

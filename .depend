@@ -715,7 +715,7 @@ asmcomp/compilenv.cmi : utils/timings.cmi middle_end/base_types/symbol.cmi \
     middle_end/base_types/closure_id.cmi asmcomp/clambda.cmi
 asmcomp/CSEgen.cmi : asmcomp/mach.cmi
 asmcomp/deadcode.cmi : asmcomp/mach.cmi
-asmcomp/emitaux.cmi : bytecomp/debuginfo.cmi
+asmcomp/emitaux.cmi : asmcomp/mach.cmi bytecomp/debuginfo.cmi
 asmcomp/emit.cmi : asmcomp/linearize.cmi asmcomp/cmm.cmi
 asmcomp/export_info_for_pack.cmi : asmcomp/export_info.cmi \
     middle_end/base_types/compilation_unit.cmi
@@ -823,10 +823,10 @@ asmcomp/asmpackager.cmx : typing/typemod.cmx bytecomp/translmod.cmx \
     middle_end/base_types/compilation_unit.cmx asmcomp/cmx_format.cmi \
     utils/clflags.cmx utils/ccomp.cmx asmcomp/asmlink.cmx asmcomp/asmgen.cmx \
     asmcomp/asmpackager.cmi
-asmcomp/branch_relaxation_intf.cmo : asmcomp/linearize.cmi \
-    bytecomp/debuginfo.cmi asmcomp/arch.cmo
-asmcomp/branch_relaxation_intf.cmx : asmcomp/linearize.cmx \
-    bytecomp/debuginfo.cmx asmcomp/arch.cmx
+asmcomp/branch_relaxation_intf.cmo : asmcomp/mach.cmi asmcomp/linearize.cmi \
+    asmcomp/arch.cmo
+asmcomp/branch_relaxation_intf.cmx : asmcomp/mach.cmx asmcomp/linearize.cmx \
+    asmcomp/arch.cmx
 asmcomp/branch_relaxation.cmo : utils/misc.cmi asmcomp/mach.cmi \
     asmcomp/linearize.cmi asmcomp/cmm.cmi asmcomp/branch_relaxation_intf.cmo \
     asmcomp/branch_relaxation.cmi
@@ -899,12 +899,10 @@ asmcomp/cmm.cmx : bytecomp/lambda.cmx typing/ident.cmx \
     bytecomp/debuginfo.cmx asmcomp/arch.cmx asmcomp/cmm.cmi
 asmcomp/coloring.cmo : asmcomp/reg.cmi asmcomp/proc.cmi asmcomp/coloring.cmi
 asmcomp/coloring.cmx : asmcomp/reg.cmx asmcomp/proc.cmx asmcomp/coloring.cmi
-asmcomp/comballoc.cmo : asmcomp/reg.cmi asmcomp/mach.cmi \
-    bytecomp/debuginfo.cmi utils/config.cmi asmcomp/arch.cmo \
-    asmcomp/comballoc.cmi
-asmcomp/comballoc.cmx : asmcomp/reg.cmx asmcomp/mach.cmx \
-    bytecomp/debuginfo.cmx utils/config.cmx asmcomp/arch.cmx \
-    asmcomp/comballoc.cmi
+asmcomp/comballoc.cmo : asmcomp/reg.cmi asmcomp/mach.cmi utils/config.cmi \
+    asmcomp/arch.cmo asmcomp/comballoc.cmi
+asmcomp/comballoc.cmx : asmcomp/reg.cmx asmcomp/mach.cmx utils/config.cmx \
+    asmcomp/arch.cmx asmcomp/comballoc.cmi
 asmcomp/compilenv.cmo : utils/warnings.cmi middle_end/base_types/symbol.cmi \
     middle_end/base_types/set_of_closures_id.cmi utils/misc.cmi \
     parsing/location.cmi middle_end/base_types/linkage_name.cmi \
@@ -931,10 +929,12 @@ asmcomp/deadcode.cmo : asmcomp/reg.cmi asmcomp/proc.cmi asmcomp/mach.cmi \
     asmcomp/deadcode.cmi
 asmcomp/deadcode.cmx : asmcomp/reg.cmx asmcomp/proc.cmx asmcomp/mach.cmx \
     asmcomp/deadcode.cmi
-asmcomp/emitaux.cmo : asmcomp/linearize.cmi bytecomp/debuginfo.cmi \
-    utils/config.cmi utils/clflags.cmi asmcomp/arch.cmo asmcomp/emitaux.cmi
-asmcomp/emitaux.cmx : asmcomp/linearize.cmx bytecomp/debuginfo.cmx \
-    utils/config.cmx utils/clflags.cmx asmcomp/arch.cmx asmcomp/emitaux.cmi
+asmcomp/emitaux.cmo : asmcomp/mach.cmi asmcomp/linearize.cmi \
+    bytecomp/debuginfo.cmi utils/config.cmi utils/clflags.cmi \
+    asmcomp/arch.cmo asmcomp/emitaux.cmi
+asmcomp/emitaux.cmx : asmcomp/mach.cmx asmcomp/linearize.cmx \
+    bytecomp/debuginfo.cmx utils/config.cmx utils/clflags.cmx \
+    asmcomp/arch.cmx asmcomp/emitaux.cmi
 asmcomp/emit.cmo : asmcomp/x86_proc.cmi asmcomp/x86_masm.cmi \
     asmcomp/x86_gas.cmi asmcomp/x86_dsl.cmi asmcomp/x86_ast.cmi \
     asmcomp/reg.cmi asmcomp/proc.cmi utils/misc.cmi asmcomp/mach.cmi \

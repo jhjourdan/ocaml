@@ -117,7 +117,7 @@ int caml_page_table_initialize(mlsize_t bytesize);
     if(caml_young_ptr < caml_memprof_young_limit){                          \
       if(track) {                                                           \
         Setup_for_track_gc;                                                 \
-        caml_memprof_track_young(wosize);                                   \
+        caml_memprof_track_young((tag), wosize);                            \
         Restore_after_track_gc;                                             \
       } else                                                                \
         caml_memprof_renew_minor_sample();                                  \

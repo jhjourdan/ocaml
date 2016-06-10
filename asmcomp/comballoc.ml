@@ -19,7 +19,7 @@ open Mach
 
 type allocation_state =
     No_alloc                            (* no allocation is pending *)
-  | Pending_alloc of Reg.t * (int * Debuginfo.t) list * int
+  | Pending_alloc of Reg.t * alloc_info list * int
                                         (* an allocation is pending *)
 (* The arguments of Pending_alloc(reg, lst, sz) are:
      reg  the register holding the result of the last allocation
@@ -35,7 +35,7 @@ let rec combine i allocstate =
     Iend | Ireturn | Iexit _ | Iraise _ ->
       (i, allocated_list allocstate)
   | Iop(Ialloc l) ->
-      let sz = List.fold_left (fun acc (n, _) -> acc + n) 0 l in
+      let sz = List.fold_left (fun acc {alloc_size} -> acc + alloc_size) 0 l in
       begin match allocstate with
         No_alloc ->
           let (newnext, newl) =

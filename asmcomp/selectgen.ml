@@ -277,7 +277,9 @@ method select_operation op args =
         (Istore(chunk, addr, is_assign), [arg2; eloc])
         (* Inversion addr/datum in Istore *)
       end
-  | (Calloc dbg, _) -> (Ialloc [0, dbg], args)
+  | (Calloc _, _) -> (Ialloc [{alloc_size = 0; alloc_tag = 0;
+                               alloc_loc = Debuginfo.none}],
+                    args)
   | (Caddi, _) -> self#select_arith_comm Iadd args
   | (Csubi, _) -> self#select_arith Isub args
   | (Cmuli, _) -> self#select_arith_comm Imul args
@@ -550,8 +552,16 @@ method emit_expr env exp =
               Some rd
           | Ialloc _ ->
               let rd = self#regs_for typ_val in
-              let size = size_expr env (Ctuple new_args) in
-              self#insert (Iop(Ialloc [size, dbg])) [||] rd;
+              let alloc_size = size_expr env (Ctuple new_args) in
+              let alloc_tag = match new_args with
+                | Cconst_blockheader hd :: _ ->
+                   Nativeint.to_int (Nativeint.logand hd
+                                       (Nativeint.of_int 255))
+                | _ -> assert false
+              in
+              self#insert (Iop(Ialloc [{ alloc_size; alloc_tag;
+                                         alloc_loc = dbg}]))
+                          [||] rd;
               self#emit_stores env new_args rd;
               Some rd
           | op ->

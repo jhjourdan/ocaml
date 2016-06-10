@@ -43,7 +43,7 @@ type frame_descr =
     fd_frame_size: int;                 (* Size of stack frame *)
     fd_live_offset: int list;           (* Offsets/regs of live addresses *)
     fd_debuginfo: Debuginfo.t;          (* Location, if any *)
-    fd_allocs: (int * Debuginfo.t) list }
+    fd_allocs: Mach.alloc_info list }
 
 val frame_descriptors : frame_descr list ref
 

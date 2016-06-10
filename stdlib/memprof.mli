@@ -23,18 +23,26 @@ type alloc_kind =
     - Serialized : the allocation happened during a
       deserialization. *)
 
-type 'a callback = alloc_kind -> int -> int -> Printexc.raw_backtrace ->
-                   (Obj.t, 'a) Ephemeron.K1.t option
-(** [callback] is the type of callbacks launch by the sampling
-    engine. Its parameters are, in order:
-      - The kind of the allocation.
-      - The size of the allocated block, in words (exclusing the
-        header).
-      - The number of samples in this block. Always > 1, it is sampled
+type sample_info = {
+    n_samples: int;
+    (** The number of samples in this block. Always > 1, it is sampled
         according to a Poisosn process, and in average equal to the
-        size of the block (including the header) multiplied by
-        lambda (the sampling rate).
-      - The callstack for the allocation.
+        size of the block (including the header) multiplied by lambda
+        (the sampling rate). *)
+    kind: alloc_kind;
+    (** The kind of the allocation. *)
+    tag: int;
+    (** The tag of the allocated block. *)
+    size: int;
+    (** The size of the allocated block, in words (exclusing the
+        header). *)
+    callstack: Printexc.raw_backtrace;
+    (** The callstack for the allocation. *)
+}
+(** The meta data passed at each callback.  *)
+
+type 'a callback = sample_info -> (Obj.t, 'a) Ephemeron.K1.t option
+(** [callback] is the type of callbacks launch by the sampling engine.
    A callback returns an option over an ephemeron whose key is set
    to the allocated block for further tracking.
 
