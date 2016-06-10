@@ -189,8 +189,8 @@ CAMLprim value caml_memprof_set(value v) {
   CAMLreturn(Val_unit);
 }
 
-/* Cf. Memprof.callstack_kind */
-enum ml_callback_kind {
+/* Cf. Memprof.alloc_kind */
+enum ml_alloc_kind {
   Minor = Val_long(0),
   Major = Val_long(1),
   Major_postponed = Val_long(2),
@@ -198,7 +198,7 @@ enum ml_callback_kind {
 };
 
 static value do_callback(intnat wosize, int32_t occurences, value callstack,
-                         enum ml_callback_kind cb_kind) {
+                         enum ml_alloc_kind cb_kind) {
   Assert(occurences > 0);
   value args[4] =
     { cb_kind, Val_long(wosize), Val_long(occurences), callstack };

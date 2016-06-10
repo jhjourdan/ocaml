@@ -1,10 +1,10 @@
-type callback_kind =
+type alloc_kind =
   | Minor
   | Major
   | Major_postponed
   | Serialized
 
-type 'a callback = callback_kind -> int -> int -> Printexc.raw_backtrace ->
+type 'a callback = alloc_kind -> int -> int -> Printexc.raw_backtrace ->
                    (Obj.t, 'a) Ephemeron.K1.t option
 
 type 'a ctrl = {
