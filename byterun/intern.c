@@ -641,6 +641,32 @@ static void intern_add_to_heap(mlsize_t whsize)
   }
 }
 
+static value intern_end(value res, mlsize_t whsize) {
+  CAMLparam1(res);
+  header_t *block, *blockend;
+  if(intern_extra_block != NULL) {
+    block = (header_t*)intern_extra_block;
+    blockend = intern_dest;
+  } else if(intern_block != 0) {
+    block = Hp_val(intern_block);
+    blockend = intern_dest;
+  } else
+    block = NULL;
+
+  intern_add_to_heap(whsize);
+
+  /* Free everything */
+  intern_cleanup();
+
+  /* Memprof tracking has to be done here, because it can potentially
+     trigger the gc. */
+  if(block != NULL)
+    caml_memprof_track_interned(block, blockend);
+
+  caml_check_urgent_gc(Val_unit);
+  CAMLreturn(res);
+}
+
 /* Parsing the header */
 
 struct marshal_header {
@@ -694,22 +720,6 @@ static void caml_parse_header(char * fun_name,
   }
 }
 
-static value intern_memprof_track(value res) {
-  CAMLparam1(res);
-
-  header_t* block;
-  if(intern_extra_block != NULL)
-    block = (header_t*)intern_extra_block;
-  else if(intern_block != 0)
-    block = Hp_val(intern_block);
-  else
-    CAMLreturn(res);
-
-  caml_memprof_track_interned(block, intern_dest);
-
-  CAMLreturn(res);
-}
-
 /* Reading from a channel */
 
 value caml_input_val(struct channel *chan)
@@ -747,13 +757,7 @@ value caml_input_val(struct channel *chan)
   intern_alloc(h.whsize, h.num_objects);
   /* Fill it in */
   intern_rec(&res);
-  intern_add_to_heap(h.whsize);
-  /* Free everything */
-  intern_cleanup();
-  /* Memprof tracking has to be done here, because it can potentially
-     trigger the gc. */
-  res = intern_memprof_track(res);
-  return caml_check_urgent_gc(res);
+  return intern_end(res, h.whsize);
 }
 
 CAMLprim value caml_input_value(value vchan)
@@ -786,13 +790,7 @@ CAMLexport value caml_input_val_from_string(value str, intnat ofs)
   intern_src = &Byte_u(str, ofs + h.header_len); /* If a GC occurred */
   /* Fill it in */
   intern_rec(&obj);
-  intern_add_to_heap(h.whsize);
-  /* Free everything */
-  intern_cleanup();
-  /* Memprof tracking has to be done here, because it can potentially
-     trigger the gc. */
-  obj = intern_memprof_track(obj);
-  CAMLreturn (caml_check_urgent_gc(obj));
+  CAMLreturn(intern_end(obj, h.whsize));
 }
 
 CAMLprim value caml_input_value_from_string(value str, value ofs)
@@ -807,13 +805,7 @@ static value input_val_from_block(struct marshal_header * h)
   intern_alloc(h->whsize, h->num_objects);
   /* Fill it in */
   intern_rec(&obj);
-  intern_add_to_heap(h->whsize);
-  /* Free internal data structures */
-  intern_cleanup();
-  /* Memprof tracking has to be done here, because it can potentially
-     trigger the gc. */
-  obj = intern_memprof_track(obj);
-  return caml_check_urgent_gc(obj);
+  return intern_end(obj, h->whsize);
 }
 
 CAMLexport value caml_input_value_from_malloc(char * data, intnat ofs)
