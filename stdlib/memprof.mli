@@ -56,11 +56,11 @@ type 'a callback = sample_info -> (Obj.t, 'a) Ephemeron.K1.t option
    used. *)
 
 type 'a ctrl = {
-    lambda : float;
+    sampling_rate : float;
     (** The sampling rate in samples per word (including headers).
         Usually, with cheap callbacks, a rate of 0.001 has no visible
         effect on performances, and 0.01 keeps similar performances. *)
-    dumpped_callstack_size : int;
+    callstack_size : int;
     (** The lenght of the callstack recorded at every sample. *)
     callback : 'a callback
     (** The callback to be called at every sample. *)

@@ -12,13 +12,13 @@ type sample_info = {
 type 'a callback = sample_info -> (Obj.t, 'a) Ephemeron.K1.t option
 
 type 'a ctrl = {
-    lambda : float;
-    dumpped_callstack_size : int;
+    sampling_rate : float;
+    callstack_size : int;
     callback : 'a callback
 }
 
 let stopped_ctrl = {
-    lambda = 0.; dumpped_callstack_size = 0;
+    sampling_rate = 0.; callstack_size = 0;
     callback = fun _ -> assert false
 }
 
