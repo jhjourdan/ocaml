@@ -45,11 +45,6 @@ let callback : sample_info Memprof.callback = fun info ->
   push ephe;
   Some ephe
 
-let start sampling_rate callstack_size =
-  Memprof.start { sampling_rate; callstack_size; callback }
-
-let stop = Memprof.stop
-
 (* Reading and printing the set of samples. *)
 
 type sampleTree =
@@ -79,27 +74,32 @@ let rec sort_sampleTree (t:sampleTree) : sortedSampleTree =
 	List.sort (fun (_, SSTC (_, n1, _)) (_, SSTC (_, n2, _)) -> n2 - n1)
 	  (Hashtbl.fold (fun li st lst -> (li, sort_sampleTree st)::lst) sth []))
 
-let print chan (SSTC (_, n, tl)) =
+let print chan min_samples (SSTC (_, n, tl)) =
   let rec aux indent =
     List.iter (fun (li, SSTC (sl, n, tl)) ->
-      begin match Printexc.Slot.location (convert_raw_backtrace_slot li) with
-      | Some { filename; line_number; start_char; end_char } ->
-	  Printf.fprintf chan "%7d | %s%s:%d %d-%d" n indent filename line_number start_char end_char
-      | None ->
-	  Printf.fprintf chan "%7d | %s?" n indent
-      end;
-      (* (match sl with *)
-      (* | _ :: _ -> *)
-      (*    let mean = *)
-      (*      (List.fold_left (+.) 0. (List.rev_map (fun x -> float_of_int x.size *. float_of_int x.n_samples) sl)) /. *)
-      (*        (float_of_int n) *)
-      (*    in *)
-      (*     Printf.fprintf c " mean size=%f\n" mean *)
-      (* | [] -> Printf.printf "\n"); *)
-      aux (indent^"  ") tl)
+      if min_samples <= n then
+        begin
+          begin match Printexc.Slot.location (convert_raw_backtrace_slot li) with
+                | Some { filename; line_number; start_char; end_char } ->
+	           Printf.fprintf chan "%7d | %s%s:%d %d-%d" n indent filename line_number start_char end_char
+                | None ->
+	           Printf.fprintf chan "%7d | %s?" n indent
+          end;
+          Printf.fprintf chan "\n";
+          (* (match sl with *)
+          (* | _ :: _ -> *)
+          (*    let mean = *)
+          (*      (List.fold_left (+.) 0. (List.rev_map (fun x -> float_of_int x.size *. float_of_int x.n_samples) sl)) /. *)
+          (*        (float_of_int n) *)
+          (*    in *)
+          (*     Printf.fprintf c " mean size=%f\n" mean *)
+          (* | [] -> Printf.printf "\n"); *)
+          aux (indent^"  ") tl
+        end)
   in
   Printf.fprintf chan "%7d | Total samples\n" n;
-  aux "" tl
+  aux "" tl;
+  Printf.fprintf chan "-----------------------------------------------\n"
 
 let dump () =
   let s, sz = !samples, !n_samples in
@@ -110,3 +110,18 @@ let dump () =
          | Some s -> aux (add_sampleTree s st) (i+1)
   in
   sort_sampleTree (aux (STC ([], 0, Hashtbl.create 3)) 0)
+
+let start sampling_rate callstack_size min_samples_print =
+  Memprof.start { sampling_rate; callstack_size; callback };
+  Sys.set_signal Sys.sigusr1 (Sys.Signal_handle
+    (fun _ ->
+     stop ();
+     Gc.full_major();
+     let chan =
+       open_out_gen [Open_wronly; Open_creat; Open_text; Open_append]
+                    0o666  "memory_profile"
+     in
+     print chan min_samples_print (dump ());
+     close_out chan;
+     Memprof.start { sampling_rate; callstack_size; callback }));
+  Memprof.start { sampling_rate; callstack_size; callback }
