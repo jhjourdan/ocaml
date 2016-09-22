@@ -17,6 +17,7 @@ static uint32_t mt_index;
 /* [lambda] is the mean number of samples for each allocated word (including
    block headers). */
 static double lambda = 0;
+static int suspended = 0;
 static double lambda_rec = INFINITY;
 static intnat callstack_size = 0;
 static value memprof_callback = Val_unit;
@@ -107,7 +108,7 @@ static double mt_generate_uniform(void) {
 static double mt_generate_exponential() {
   Assert(lambda >= 0 && !isinf(lambda));
 
-  if(lambda == 0)
+  if(suspended || lambda == 0)
     return INFINITY;
 
   double res = -logapprox(mt_generate_uniform()) * lambda_rec;
@@ -116,17 +117,18 @@ static double mt_generate_exponential() {
 }
 
 /* Max returned value : 2^30-2. Assumes lambda >= 0. */
-static int32_t mt_generate_poisson(double lambda) {
-  Assert(lambda >= 0 && !isinf(lambda));
+static int32_t mt_generate_poisson(double len) {
+  double cur_lambda = lambda * len;
+  Assert(cur_lambda >= 0 && !isinf(cur_lambda));
 
-  if(lambda == 0)
+  if(suspended || cur_lambda == 0)
     return 0;
 
-  if(lambda < 20) {
+  if(cur_lambda < 20) {
     double p;
     int32_t k;
     k = 0;
-    p = expapprox(lambda);
+    p = expapprox(cur_lambda);
     do {
       k++;
       p *= mt_generate_uniform();
@@ -134,10 +136,10 @@ static int32_t mt_generate_poisson(double lambda) {
     return k-1;
   } else {
     double c, beta, alpha, k;
-    c = 0.767 - 3.36/lambda;
-    beta = 1./sqrt((3./(M_PI*M_PI))*lambda);
-    alpha = beta*lambda;
-    k = logapprox(c) - lambda - logapprox(beta);
+    c = 0.767 - 3.36/cur_lambda;
+    beta = 1./sqrt((3./(M_PI*M_PI))*cur_lambda);
+    alpha = beta*cur_lambda;
+    k = logapprox(c) - cur_lambda - logapprox(beta);
     while(1) {
       double u, x, n, v, y, y2;
       u = mt_generate_uniform();
@@ -150,7 +152,7 @@ static int32_t mt_generate_poisson(double lambda) {
       y = alpha - beta*x;
       y2 = 1. + expapprox(y);
 
-      if(y + logapprox(v/(y2*y2)) < k + n*logapprox(lambda) - lgammaf(n+1))
+      if(y + logapprox(v/(y2*y2)) < k + n*logapprox(cur_lambda) - lgammaf(n+1))
         return n > ((1<<30)-2) ? ((1<<30)-2) : n;
     }
   }
@@ -161,6 +163,16 @@ static int32_t mt_generate_poisson(double lambda) {
 void set_lambda(double l) {
   lambda = l;
   lambda_rec = l == 0 ? INFINITY : 1/l;
+  caml_memprof_renew_minor_sample();
+}
+
+void suspend() {
+  suspended = 1;
+  caml_memprof_renew_minor_sample();
+}
+
+void unsuspend() {
+  suspended = 0;
   caml_memprof_renew_minor_sample();
 }
 
@@ -258,20 +270,19 @@ void caml_memprof_track_young(tag_t tag, uintnat wosize) {
   double rest =
     (caml_memprof_young_limit - caml_young_ptr) - next_sample_round;
 
-  Assert(rest > 0 && lambda > 0);
+  Assert(rest > 0 && lambda > 0 && !suspended);
 
-  int32_t occurences = mt_generate_poisson(rest*lambda) + 1;
+  int32_t occurences = mt_generate_poisson(rest) + 1;
 
   caml_young_ptr += whsize;
   //We should not allocate before this point
 
   caml_memprof_handle_postponed();
 
-  double old_lambda = lambda;
-  set_lambda(0);
+  suspend();
   callstack = capture_callstack(0);
   ephe = do_callback(tag, wosize, occurences, callstack, Minor);
-  set_lambda(old_lambda); // Calls [caml_memprof_renew_minor_sample]
+  unsuspend();  // Calls [caml_memprof_renew_minor_sample]
   if (Is_exception_result(ephe)) caml_raise(Extract_exception(ephe));
 
   if(caml_young_ptr - whsize < caml_young_trigger)
@@ -296,16 +307,15 @@ value caml_memprof_track_alloc_shr(tag_t tag, value block) {
 
   Assert(Is_in_heap(block));
 
-  int32_t occurences = mt_generate_poisson(lambda * Whsize_val(block));
+  int32_t occurences = mt_generate_poisson(Whsize_val(block));
 
   caml_memprof_handle_postponed();
 
   if(occurences > 0) {
-    double old_lambda = lambda;
-    set_lambda(0);
+    suspend();
     callstack = capture_callstack(0);
     ephe = do_callback(tag, Wosize_val(block), occurences, callstack, Major);
-    set_lambda(old_lambda);
+    unsuspend();
     if (Is_exception_result(ephe)) caml_raise(Extract_exception(ephe));
 
     if(Is_block(ephe))
@@ -329,7 +339,7 @@ struct postponed_block {
    sampled, it stores the block in the todo-list so that the callback
    call is performed later. */
 void caml_memprof_postpone_track_alloc_shr(value block) {
-  int32_t occurences = mt_generate_poisson(lambda * Whsize_val(block));
+  int32_t occurences = mt_generate_poisson(Whsize_val(block));
   Assert(Is_in_heap(block));
   if(occurences > 0) {
     struct postponed_block* pb =
@@ -337,10 +347,9 @@ void caml_memprof_postpone_track_alloc_shr(value block) {
     if(pb == NULL) return;
     pb->block = block;
     caml_register_generational_global_root(&pb->block);
-    double old_lambda = lambda;
-    set_lambda(0);
+    suspend();
     pb->callstack = capture_callstack(1);
-    set_lambda(old_lambda);
+    unsuspend();
     caml_register_generational_global_root(&pb->callstack);
     pb->occurences = occurences;
     pb->next = postponed_head;
@@ -355,7 +364,6 @@ void caml_memprof_postpone_track_alloc_shr(value block) {
 
 void caml_memprof_handle_postponed() {
   struct postponed_block *p, *q;
-  double old_lambda = lambda;
   value ephe;
 
   if(postponed_head == NULL)
@@ -380,13 +388,13 @@ void caml_memprof_handle_postponed() {
     free(p);                                             \
     p = next; }
 
-  set_lambda(0);
+  suspend();
   // We then do the actual iteration on postponed blocks
   while(p != NULL) {
     ephe = do_callback(Tag_val(p->block), Wosize_val(p->block),
                        p->occurences, p->callstack, Major_postponed);
     if (Is_exception_result(ephe)) {
-      set_lambda(old_lambda);
+      unsuspend();
       // In the case of an exception, we just forget the entire list.
       while(p != NULL) NEXT_P;
       caml_raise(Extract_exception(ephe));
@@ -395,7 +403,7 @@ void caml_memprof_handle_postponed() {
       caml_ephe_set_key(Field(ephe, 0), Val_long(0), p->block);
     NEXT_P;
   }
-  set_lambda(old_lambda);
+  unsuspend();
 }
 
 void caml_memprof_track_interned(header_t* block, header_t* blockend) {
@@ -456,7 +464,7 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
     sampled[j] = Val_hp(p);
     double rest = (p + Whsize_hp(p) - p0) - next_sample;
     Assert(rest > 0);
-    occurences[j] = mt_generate_poisson(rest*lambda) + 1;
+    occurences[j] = mt_generate_poisson(rest) + 1;
     j++;
 
     p += Whsize_hp(p);
@@ -470,8 +478,7 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
 
   caml_memprof_handle_postponed();
 
-  double old_lambda = lambda;
-  set_lambda(0);
+  suspend();
   callstack = capture_callstack(0);
   for(i = 0; i < j; i++) {
     ephe = do_callback(Tag_val(sampled[i]), Wosize_val(sampled[i]),
@@ -479,7 +486,7 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
     if (Is_exception_result(ephe)) {
       free(sampled);
       free(occurences);
-      set_lambda(old_lambda);
+      unsuspend();
       caml_raise(Extract_exception(ephe));
     }
     if(Is_block(ephe))
@@ -488,7 +495,7 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
 
   free(sampled);
   free(occurences);
-  set_lambda(old_lambda);
+  unsuspend();
   CAMLreturn0;
 }
 
@@ -543,7 +550,7 @@ void caml_memprof_call_gc_end(double exceeded_by) {
   CAMLparam0();
   CAMLlocal3(callstack, callstack_cur, tmp);
 
-  if(lambda == 0)
+  if(suspended || lambda == 0)
     CAMLreturn0;
 
   d = caml_next_frame_descriptor(&pc, &sp);
@@ -588,7 +595,7 @@ void caml_memprof_call_gc_end(double exceeded_by) {
         samples[n_samples].offs = offs;
         samples[n_samples].tag = block_infos[i].tag;
         samples[n_samples].occurences =
-          mt_generate_poisson(-next_sample*lambda) + 1;
+          mt_generate_poisson(-next_sample) + 1;
         samples[n_samples].sz = Wosize_whsize(block_infos[i].sz);
         samples[n_samples].alloc_frame_pos = i;
         n_samples++;
@@ -602,8 +609,7 @@ void caml_memprof_call_gc_end(double exceeded_by) {
     caml_memprof_handle_postponed();
 
     CAMLlocalN(ephes, n_samples);
-    double old_lambda = lambda;
-    set_lambda(0);
+    suspend();
     callstack = capture_callstack(0);
     for(i = 0; i < n_samples; i++) {
       if(samples[i].alloc_frame_pos == 0)
@@ -622,11 +628,11 @@ void caml_memprof_call_gc_end(double exceeded_by) {
                              samples[i].occurences, callstack_cur, Minor);
       if(Is_exception_result(ephes[i])) {
         free(samples);
-        set_lambda(old_lambda);
+        unsuspend();
         caml_raise(Extract_exception(ephes[i]));
       }
     }
-    set_lambda(old_lambda); // Calls caml_memprof_renew_minor_sample
+    unsuspend(); // Calls caml_memprof_renew_minor_sample
 
     // Do everything we can to make sure that the allocation will take
     // place.
