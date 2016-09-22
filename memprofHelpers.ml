@@ -116,7 +116,6 @@ let start sampling_rate callstack_size min_samples_print =
   Sys.set_signal Sys.sigusr1 (Sys.Signal_handle
     (fun _ ->
      stop ();
-     Gc.full_major();
      let chan =
        open_out_gen [Open_wronly; Open_creat; Open_text; Open_append]
                     0o666  "memory_profile"
