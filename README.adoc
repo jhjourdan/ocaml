@@ -1,3 +1,5 @@
+= README
+
 == OVERVIEW
 
 This is a patched version of the OCaml compiler and runtime. It
@@ -10,6 +12,7 @@ Just as the normal OCaml compiler.
 == QUICK TEST ON YOUR PROJECT
 
 1- Copy the memprofHelpers.ml file in your project
+
 2- Execute the following somewhere in your code:
 
      MemprofHelpers.start 1E-4 20 100
