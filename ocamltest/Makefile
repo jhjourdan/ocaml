@@ -152,12 +152,13 @@ ocamltest.opt$(EXE): $(native_modules)
 
 ocamltest_config.ml: ocamltest_config.ml.in
 	sed \
+	  -e 's|@@ARCH@@|$(ARCH)|' \
 	  -e 's|@@CPP@@|$(CPP)|' \
 	  -e 's|@@OCAMLCDEFAULTFLAGS@@|$(ocamlcdefaultflags)|' \
 	  -e 's|@@OCAMLOPTDEFAULTFLAGS@@|$(ocamloptdefaultflags)|' \
 	  -e 's|@@OCAMLSRCDIR@@|$(ocamlsrcdir)|' \
 	  -e 's|@@FLAMBDA@@|$(FLAMBDA)|' \
-	  -e 's|@@SAFE_STRING@@|$(SAFE_STRING)|' \
+	  -e 's|@@FORCE_SAFE_STRING@@|$(FORCE_SAFE_STRING)|' \
 	  $< > $@
 
 .PHONY: clean
