@@ -118,46 +118,46 @@ int caml_page_table_initialize(mlsize_t bytesize);
 
 #ifdef WITH_STATMEMPROF
 #define ALLOC_SMALL_PRE_IF if (caml_young_ptr < caml_young_limit)
-#define ALLOC_SMALL_STATMEMPROF(wosize, tag, track)                     \
-  if(caml_young_ptr < caml_memprof_young_limit){                        \
-    if(track) {                                                         \
-      Setup_for_track_gc;                                               \
-      caml_memprof_track_young((tag), (wosize));                        \
-      Restore_after_track_gc;                                           \
-    } else                                                              \
-      caml_memprof_renew_minor_sample();                                \
+#define ALLOC_SMALL_STATMEMPROF(wosize, tag, track) \
+  if(caml_young_ptr < caml_memprof_young_limit){ \
+    if(track) { \
+      Setup_for_track_gc; \
+      caml_memprof_track_young((tag), (wosize)); \
+      Restore_after_track_gc; \
+    } else \
+      caml_memprof_renew_minor_sample(); \
   }
 #else
 #define ALLOC_SMALL_PRE_IF
 #define ALLOC_SMALL_STATMEMPROF(wosize, tag, track)
 #endif
 
-#define Alloc_small_impl(result, wosize, tag, profinfo, track) do {     \
-                                                CAMLassert ((wosize) >= 1); \
-                                          CAMLassert ((tag_t) (tag) < 256); \
-                                 CAMLassert ((wosize) <= Max_young_wosize); \
-  caml_young_ptr -= Whsize_wosize (wosize);                                 \
-  ALLOC_SMALL_PRE_IF {                                                      \
-    if (caml_young_ptr < caml_young_trigger){                               \
-      caml_young_ptr += Whsize_wosize (wosize);                             \
-      CAML_INSTR_INT ("force_minor/alloc_small@", 1);                       \
-      Setup_for_gc;                                                         \
-      caml_gc_dispatch ();                                                  \
-      Restore_after_gc;                                                     \
-      caml_young_ptr -= Whsize_wosize (wosize);                             \
-    }                                                                       \
-    ALLOC_SMALL_STATMEMPROF(wosize, tag, track)                             \
-  }                                                                         \
-  Hd_hp (caml_young_ptr) =                                                  \
-    Make_header_with_profinfo ((wosize), (tag), Caml_black, profinfo);      \
-  (result) = Val_hp (caml_young_ptr);                                       \
-  DEBUG_clear ((result), (wosize));                                         \
+#define Alloc_small_impl(result, wosize, tag, profinfo, track) do { \
+  CAMLassert ((wosize) >= 1); \
+  CAMLassert ((tag_t) (tag) < 256); \
+  CAMLassert ((wosize) <= Max_young_wosize); \
+  caml_young_ptr -= Whsize_wosize (wosize); \
+  ALLOC_SMALL_PRE_IF { \
+    if (caml_young_ptr < caml_young_trigger){ \
+      caml_young_ptr += Whsize_wosize (wosize); \
+      CAML_INSTR_INT ("force_minor/alloc_small@", 1); \
+      Setup_for_gc; \
+      caml_gc_dispatch (); \
+      Restore_after_gc; \
+      caml_young_ptr -= Whsize_wosize (wosize); \
+    } \
+    ALLOC_SMALL_STATMEMPROF(wosize, tag, track) \
+  } \
+  Hd_hp (caml_young_ptr) = \
+    Make_header_with_profinfo ((wosize), (tag), Caml_black, profinfo); \
+  (result) = Val_hp (caml_young_ptr); \
+  DEBUG_clear ((result), (wosize)); \
 }while(0)
 
 #if defined(NATIVE_CODE) && defined(WITH_SPACETIME)
 extern uintnat caml_spacetime_my_profinfo(struct ext_table**, uintnat);
-#define Alloc_small(result, wosize, tag)                \
-  Alloc_small_impl(result, wosize, tag,                 \
+#define Alloc_small(result, wosize, tag) \
+  Alloc_small_impl(result, wosize, tag, \
     caml_spacetime_my_profinfo(NULL, wosize), 1)
 #else
 #define Alloc_small(result, wosize, tag) \

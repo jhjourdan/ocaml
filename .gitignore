@@ -58,6 +58,7 @@
 /asmrun/*.p.c
 /asmrun/*.d.c
 /asmrun/alloc.c
+/asmrun/afl.c
 /asmrun/array.c
 /asmrun/backtrace.c
 /asmrun/callback.c
@@ -95,6 +96,7 @@
 /asmrun/terminfo.c
 /asmrun/unix.c
 /asmrun/weak.c
+/asmrun/win32.c
 
 /boot/Saved
 /boot/ocamlrun
@@ -122,6 +124,7 @@
 /config/m.h
 /config/s.h
 /config/Makefile
+/config/auto-aux/hashbang4
 
 /debugger/lexer.ml
 /debugger/parser.ml
@@ -243,7 +246,13 @@
 /testsuite/tests/asmcomp/*.s
 /testsuite/tests/asmcomp/*.out.manifest
 
+/testsuite/tests/basic/*.safe-string
+/testsuite/tests/basic/pr6322.ml
+
 /testsuite/tests/embedded/caml
+
+/testsuite/tests/float-unboxing/*.flambda
+/testsuite/tests/float-unboxing/float_inline.ml
 
 /testsuite/tests/lib-dynlink-bytecode/main
 /testsuite/tests/lib-dynlink-bytecode/static
@@ -301,6 +310,10 @@
 /testsuite/tests/tool-lexyacc/grammar.mli
 /testsuite/tests/tool-lexyacc/grammar.ml
 
+/testsuite/tests/typing-multifile/a.ml
+/testsuite/tests/typing-multifile/b.ml
+/testsuite/tests/typing-multifile/c.ml
+
 /testsuite/tests/unboxed-primitive-args/main.ml
 /testsuite/tests/unboxed-primitive-args/stubs.c
 
@@ -351,6 +364,8 @@
 /tools/cmpbyt.opt
 /tools/stripdebug
 /tools/stripdebug.opt
+/tools/make_opcodes
+/tools/make_opcodes.ml
 
 /utils/config.ml
 

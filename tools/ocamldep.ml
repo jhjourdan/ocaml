@@ -293,7 +293,7 @@ let read_parse_and_extract parse_function extract_function def ast_kind
       let bound_vars =
         List.fold_left
           (fun bv modname ->
-            Depend.open_module bv (Longident.Lident modname))
+            Depend.open_module bv (Longident.parse modname))
           !module_map ((* PR#7248 *) List.rev !Clflags.open_modules)
       in
       let r = extract_function bound_vars ast in
@@ -546,7 +546,7 @@ let _ =
   Clflags.classic := false;
   add_to_list first_include_dirs Filename.current_dir_name;
   Compenv.readenv ppf Before_args;
-  Arg.parse [
+  Clflags.add_arguments __LOC__ [
      "-absname", Arg.Set Location.absname,
         " Show absolute filenames in error messages";
      "-all", Arg.Set all_dependencies,
@@ -580,6 +580,8 @@ let _ =
         " Output one line per file, regardless of the length";
      "-open", Arg.String (add_to_list Clflags.open_modules),
         "<module>  Opens the module <module> before typing";
+     "-plugin", Arg.String Compplugin.load,
+         "<plugin>  Load dynamic plugin <plugin>";
      "-pp", Arg.String(fun s -> Clflags.preprocessor := Some s),
          "<cmd>  Pipe sources through preprocessor <cmd>";
      "-ppx", Arg.String (add_to_list first_ppx),
@@ -592,7 +594,14 @@ let _ =
          " Print version and exit";
      "-vnum", Arg.Unit print_version_num,
          " Print version number and exit";
-    ] file_dependencies usage;
+     "-args", Arg.Expand Arg.read_arg,
+         "<file> Read additional newline separated command line arguments \n\
+         \      from <file>";
+     "-args0", Arg.Expand Arg.read_arg0,
+         "<file> Read additional NUL separated command line arguments from \n\
+         \      <file>"
+  ];
+  Clflags.parse_arguments file_dependencies usage;
   Compenv.readenv ppf Before_link;
   if !sort_files then sort_files_by_dependencies !files
   else List.iter print_file_dependencies (List.sort compare !files);

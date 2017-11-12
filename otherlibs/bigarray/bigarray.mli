@@ -49,7 +49,7 @@
    ({!Bigarray.int16_signed_elt} or {!Bigarray.int16_unsigned_elt}),
 - OCaml integers (signed, 31 bits on 32-bit architectures,
    63 bits on 64-bit architectures) ({!Bigarray.int_elt}),
-- 32-bit signed integer ({!Bigarray.int32_elt}),
+- 32-bit signed integers ({!Bigarray.int32_elt}),
 - 64-bit signed integers ({!Bigarray.int64_elt}),
 - platform-native signed integers (32 bits on 32-bit architectures,
    64 bits on 64-bit architectures) ({!Bigarray.nativeint_elt}).
@@ -295,7 +295,10 @@ module Genarray :
       the same dimensions as [a]). No copying of elements is involved: the
       new array and the original array share the same storage space.
       The dimensions are reversed, such that [get v [| a; b |]] in
-      C layout becomes [get v [| b+1; a+1 |]] in Fortran layout. *)
+      C layout becomes [get v [| b+1; a+1 |]] in Fortran layout.
+
+      @since 4.04.0
+  *)
 
   val size_in_bytes : ('a, 'b, 'c) t -> int
   (** [size_in_bytes a] is the number of elements in [a] multiplied
@@ -489,7 +492,8 @@ module Genarray :
    similar to those of {!Bigarray.Genarray}, but specialized to the case
    of zero-dimensional arrays that only contain a single scalar value.
    Statically knowing the number of dimensions of the array allows
-   faster operations, and more precise static type-checking. *)
+   faster operations, and more precise static type-checking.
+   @since 4.05.0 *)
 module Array0 : sig
   type ('a, 'b, 'c) t
   (** The type of zero-dimensional big arrays whose elements have
@@ -498,7 +502,7 @@ module Array0 : sig
   val create: ('a, 'b) kind -> 'c layout -> ('a, 'b, 'c) t
   (** [Array0.create kind layout] returns a new bigarray of zero dimension.
      [kind] and [layout] determine the array element kind and the array
-     layout as described for [Genarray.create]. *)
+     layout as described for {!Genarray.create}. *)
 
   external kind: ('a, 'b, 'c) t -> ('a, 'b) kind = "caml_ba_kind"
   (** Return the kind of the given big array. *)
@@ -517,11 +521,11 @@ module Array0 : sig
 
   external blit: ('a, 'b, 'c) t -> ('a, 'b, 'c) t -> unit = "caml_ba_blit"
   (** Copy the first big array to the second big array.
-     See [Genarray.blit] for more details. *)
+     See {!Genarray.blit} for more details. *)
 
   external fill: ('a, 'b, 'c) t -> 'a -> unit = "caml_ba_fill"
   (** Fill the given big array with the given value.
-     See [Genarray.fill] for more details. *)
+     See {!Genarray.fill} for more details. *)
 
   val of_value: ('a, 'b) kind -> 'c layout -> 'a -> ('a, 'b, 'c) t
   (** Build a zero-dimensional big array initialized from the
@@ -535,7 +539,7 @@ end
 (** One-dimensional arrays. The [Array1] structure provides operations
    similar to those of
    {!Bigarray.Genarray}, but specialized to the case of one-dimensional arrays.
-   (The [Array2] and [Array3] structures below provide operations
+   (The {!Array2} and {!Array3} structures below provide operations
    specialized for two- and three-dimensional arrays.)
    Statically knowing the number of dimensions of the array allows
    faster operations, and more precise static type-checking. *)
@@ -548,7 +552,7 @@ module Array1 : sig
   (** [Array1.create kind layout dim] returns a new bigarray of
      one dimension, whose size is [dim].  [kind] and [layout]
      determine the array element kind and the array layout
-     as described for [Genarray.create]. *)
+     as described for {!Genarray.create}. *)
 
   external dim: ('a, 'b, 'c) t -> int = "%caml_ba_dim_1"
   (** Return the size (dimension) of the given one-dimensional
@@ -584,22 +588,23 @@ module Array1 : sig
   external sub: ('a, 'b, 'c) t -> int -> int -> ('a, 'b, 'c) t
       = "caml_ba_sub"
   (** Extract a sub-array of the given one-dimensional big array.
-     See [Genarray.sub_left] for more details. *)
+     See {!Genarray.sub_left} for more details. *)
 
   val slice: ('a, 'b, 'c) t -> int -> ('a, 'b, 'c) Array0.t
   (** Extract a scalar (zero-dimensional slice) of the given one-dimensional
      big array.  The integer parameter is the index of the scalar to
      extract.  See {!Bigarray.Genarray.slice_left} and
-     {!Bigarray.Genarray.slice_right} for more details. *)
+     {!Bigarray.Genarray.slice_right} for more details.
+     @since 4.05.0 *)
 
   external blit: ('a, 'b, 'c) t -> ('a, 'b, 'c) t -> unit
       = "caml_ba_blit"
   (** Copy the first big array to the second big array.
-     See [Genarray.blit] for more details. *)
+     See {!Genarray.blit} for more details. *)
 
   external fill: ('a, 'b, 'c) t -> 'a -> unit = "caml_ba_fill"
   (** Fill the given big array with the given value.
-     See [Genarray.fill] for more details. *)
+     See {!Genarray.fill} for more details. *)
 
   val of_array: ('a, 'b) kind -> 'c layout -> 'a array -> ('a, 'b, 'c) t
   (** Build a one-dimensional big array initialized from the
@@ -872,7 +877,7 @@ end
 external genarray_of_array0 :
   ('a, 'b, 'c) Array0.t -> ('a, 'b, 'c) Genarray.t = "%identity"
 (** Return the generic big array corresponding to the given zero-dimensional
-   big array. *)
+   big array. @since 4.05.0 *)
 
 external genarray_of_array1 :
   ('a, 'b, 'c) Array1.t -> ('a, 'b, 'c) Genarray.t = "%identity"
@@ -892,7 +897,8 @@ external genarray_of_array3 :
 val array0_of_genarray : ('a, 'b, 'c) Genarray.t -> ('a, 'b, 'c) Array0.t
 (** Return the zero-dimensional big array corresponding to the given
    generic big array.  Raise [Invalid_argument] if the generic big array
-   does not have exactly zero dimension. *)
+   does not have exactly zero dimension.
+   @since 4.05.0 *)
 
 val array1_of_genarray : ('a, 'b, 'c) Genarray.t -> ('a, 'b, 'c) Array1.t
 (** Return the one-dimensional big array corresponding to the given
@@ -930,7 +936,8 @@ val reshape : ('a, 'b, 'c) Genarray.t -> int array -> ('a, 'b, 'c) Genarray.t
 
 val reshape_0 : ('a, 'b, 'c) Genarray.t -> ('a, 'b, 'c) Array0.t
 (** Specialized version of {!Bigarray.reshape} for reshaping to
-   zero-dimensional arrays. *)
+   zero-dimensional arrays.
+   @since 4.05.0 *)
 
 val reshape_1 : ('a, 'b, 'c) Genarray.t -> int -> ('a, 'b, 'c) Array1.t
 (** Specialized version of {!Bigarray.reshape} for reshaping to

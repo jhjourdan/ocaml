@@ -26,7 +26,7 @@
 #include <time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#if _WIN32
+#ifdef _WIN32
 #include <io.h> /* for isatty */
 #else
 #include <sys/wait.h>
@@ -314,12 +314,22 @@ CAMLprim value caml_sys_getcwd(value unit)
   return caml_copy_string(buff);
 }
 
-CAMLprim value caml_sys_getenv(value var)
+CAMLprim value caml_sys_unsafe_getenv(value var)
 {
   char * res;
 
   if (! caml_string_is_c_safe(var)) caml_raise_not_found();
   res = CAML_SYS_GETENV(String_val(var));
+  if (res == 0) caml_raise_not_found();
+  return caml_copy_string(res);
+}
+
+CAMLprim value caml_sys_getenv(value var)
+{
+  char * res;
+
+  if (! caml_string_is_c_safe(var)) caml_raise_not_found();
+  res = caml_secure_getenv(String_val(var));
   if (res == 0) caml_raise_not_found();
   return caml_copy_string(res);
 }
@@ -382,14 +392,23 @@ CAMLprim value caml_sys_system_command(value command)
   CAMLreturn (Val_int(retcode));
 }
 
-double caml_sys_time_unboxed(value unit)
+double caml_sys_time_include_children_unboxed(value include_children)
 {
 #ifdef HAS_GETRUSAGE
   struct rusage ru;
+  double acc = 0.;
 
   getrusage (RUSAGE_SELF, &ru);
-  return ru.ru_utime.tv_sec + ru.ru_utime.tv_usec / 1e6
+  acc += ru.ru_utime.tv_sec + ru.ru_utime.tv_usec / 1e6
     + ru.ru_stime.tv_sec + ru.ru_stime.tv_usec / 1e6;
+
+  if (Bool_val(include_children)) {
+    getrusage (RUSAGE_CHILDREN, &ru);
+    acc += ru.ru_utime.tv_sec + ru.ru_utime.tv_usec / 1e6
+      + ru.ru_stime.tv_sec + ru.ru_stime.tv_usec / 1e6;
+  }
+
+  return acc;
 #else
   #ifdef HAS_TIMES
     #ifndef CLK_TCK
@@ -400,13 +419,28 @@ double caml_sys_time_unboxed(value unit)
       #endif
     #endif
     struct tms t;
+    clock_t acc = 0;
     times(&t);
-    return (double)(t.tms_utime + t.tms_stime) / CLK_TCK;
+    acc += t.tms_utime + t.tms_stime;
+    if (Bool_val(include_children)) {
+      acc += t.tms_cutime + t.tms_cstime;
+    }
+    return (double)acc / CLK_TCK;
   #else
-    /* clock() is standard ANSI C */
+    /* clock() is standard ANSI C. We have no way of getting
+       subprocess times in this branch. */
     return (double)clock() / CLOCKS_PER_SEC;
   #endif
 #endif
+}
+
+CAMLprim value caml_sys_time_include_children(value include_children)
+{
+  return caml_copy_double(caml_sys_time_include_children_unboxed(include_children));
+}
+
+double caml_sys_time_unboxed(value unit) {
+  return caml_sys_time_include_children_unboxed(Val_false);
 }
 
 CAMLprim value caml_sys_time(value unit)
@@ -602,7 +636,7 @@ void caml_load_plugin(char *plugin)
 
 void caml_cplugins_load(char *env_variable)
 {
-  char *plugins = getenv(env_variable);
+  char *plugins = caml_secure_getenv(env_variable);
   if(plugins != NULL){
     char* curs = plugins;
     while(*curs != 0){

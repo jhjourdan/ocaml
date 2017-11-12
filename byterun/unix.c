@@ -19,6 +19,7 @@
 
 #define _GNU_SOURCE
            /* Helps finding RTLD_DEFAULT in glibc */
+           /* also secure_getenv */
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -52,6 +53,7 @@
 #include "caml/osdeps.h"
 #include "caml/signals.h"
 #include "caml/sys.h"
+#include "caml/io.h"
 
 #ifndef S_ISREG
 #define S_ISREG(mode) (((mode) & S_IFMT) == S_IFREG)
@@ -83,9 +85,17 @@ int caml_write_fd(int fd, int flags, void * buf, int n)
 {
   int retcode;
  again:
+#if defined(NATIVE_CODE) && defined(WITH_SPACETIME)
+  if (flags & CHANNEL_FLAG_BLOCKING_WRITE) {
+    retcode = write(fd, buf, n);
+  } else {
+#endif
   caml_enter_blocking_section();
   retcode = write(fd, buf, n);
   caml_leave_blocking_section();
+#if defined(NATIVE_CODE) && defined(WITH_SPACETIME)
+  }
+#endif
   if (retcode == -1) {
     if (errno == EINTR) goto again;
     if ((errno == EAGAIN || errno == EWOULDBLOCK) && n > 1) {
@@ -395,5 +405,24 @@ char * caml_executable_name(void)
 #else
   return NULL;
 
+#endif
+}
+
+char *caml_secure_getenv (char const *var)
+{
+#ifdef HAS_SECURE_GETENV
+  return secure_getenv (var);
+#elif defined (HAS___SECURE_GETENV)
+  return __secure_getenv (var);
+#elif defined(HAS_ISSETUGID)
+  if (!issetugid ())
+    return CAML_SYS_GETENV (var);
+  else
+    return NULL;
+#else
+  if (geteuid () == getuid () && getegid () == getgid ())
+    return CAML_SYS_GETENV (var);
+  else
+    return NULL;
 #endif
 }

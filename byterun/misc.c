@@ -21,6 +21,7 @@
 #include "caml/config.h"
 #include "caml/misc.h"
 #include "caml/memory.h"
+#include "caml/osdeps.h"
 #include "caml/version.h"
 
 caml_timing_hook caml_major_slice_begin_hook = NULL;
@@ -37,7 +38,7 @@ int caml_failed_assert (char * expr, char * file, int line)
   fprintf (stderr, "file %s; line %d ### Assertion failed: %s\n",
            file, line, expr);
   fflush (stderr);
-  exit (100);
+  abort();
 }
 
 void caml_set_fields (value v, unsigned long start, unsigned long filler)
@@ -228,10 +229,10 @@ void CAML_INSTR_INIT (void)
   char *s;
 
   CAML_INSTR_STARTTIME = 0;
-  s = getenv ("OCAML_INSTR_START");
+  s = caml_secure_getenv ("OCAML_INSTR_START");
   if (s != NULL) CAML_INSTR_STARTTIME = atol (s);
   CAML_INSTR_STOPTIME = LONG_MAX;
-  s = getenv ("OCAML_INSTR_STOP");
+  s = caml_secure_getenv ("OCAML_INSTR_STOP");
   if (s != NULL) CAML_INSTR_STOPTIME = atol (s);
 }
 
@@ -242,7 +243,7 @@ void CAML_INSTR_ATEXIT (void)
   FILE *f = NULL;
   char *fname;
 
-  fname = getenv ("OCAML_INSTR_FILE");
+  fname = caml_secure_getenv ("OCAML_INSTR_FILE");
   if (fname != NULL){
     char *mode = "a";
     char buf [1000];
