@@ -98,6 +98,8 @@ struct caml_thread_struct {
   int backtrace_pos;         /* Saved caml_backtrace_pos */
   backtrace_slot * backtrace_buffer; /* Saved caml_backtrace_buffer */
   value backtrace_last_exn;  /* Saved caml_backtrace_last_exn (root) */
+  volatile char pending_signals[NSIG]; /* Signals sent to that thread while it
+                                          was suspended. */
 };
 
 typedef struct caml_thread_struct * caml_thread_t;
@@ -106,7 +108,7 @@ typedef struct caml_thread_struct * caml_thread_t;
 static caml_thread_t all_threads = NULL;
 
 /* The descriptor for the currently executing thread */
-static caml_thread_t curr_thread = NULL;
+volatile static caml_thread_t curr_thread = NULL;
 
 /* The master lock protecting the OCaml runtime system */
 static st_masterlock caml_master_lock;
@@ -168,8 +170,9 @@ static void caml_thread_scan_roots(scanning_action action)
 
 /* Saving and restoring runtime state in curr_thread */
 
-static inline void caml_thread_save_runtime_state(void)
+static inline void caml_thread_save_runtime_state(caml_thread_t curr_thread)
 {
+  int i;
 #ifdef NATIVE_CODE
   curr_thread->top_of_stack = caml_top_of_stack;
   curr_thread->bottom_of_stack = caml_bottom_of_stack;
@@ -195,10 +198,17 @@ static inline void caml_thread_save_runtime_state(void)
   curr_thread->backtrace_pos = caml_backtrace_pos;
   curr_thread->backtrace_buffer = caml_backtrace_buffer;
   curr_thread->backtrace_last_exn = caml_backtrace_last_exn;
+  for(i = 0; i < NSIG; i++) {
+    if(caml_pending_signals[i]) {
+      caml_pending_signals[i] = 0;
+      curr_thread->pending_signals[i] = 1;
+    }
+  }
 }
 
 static inline void caml_thread_restore_runtime_state(void)
 {
+  int i;
 #ifdef NATIVE_CODE
   caml_top_of_stack = curr_thread->top_of_stack;
   caml_bottom_of_stack= curr_thread->bottom_of_stack;
@@ -224,6 +234,12 @@ static inline void caml_thread_restore_runtime_state(void)
   caml_backtrace_pos = curr_thread->backtrace_pos;
   caml_backtrace_buffer = curr_thread->backtrace_buffer;
   caml_backtrace_last_exn = curr_thread->backtrace_last_exn;
+  for(i = 0; i < NSIG; i++) {
+    if(curr_thread->pending_signals[i]) {
+      curr_thread->pending_signals[i] = 0;
+      caml_record_signal_unmasked(i);
+    }
+  }
 }
 
 /* Hooks for caml_enter_blocking_section and caml_leave_blocking_section */
@@ -231,9 +247,13 @@ static inline void caml_thread_restore_runtime_state(void)
 
 static void caml_thread_enter_blocking_section(void)
 {
+  caml_thread_t ct = curr_thread;
+  /* Make sure we no longer consider this thread as running for signal
+     handlers. */
+  curr_thread = NULL;
   /* Save the current runtime state in the thread descriptor
      of the current thread */
-  caml_thread_save_runtime_state();
+  caml_thread_save_runtime_state(ct);
   /* Tell other threads that the runtime is free */
   st_masterlock_release(&caml_master_lock);
 }
@@ -332,6 +352,40 @@ static uintnat caml_thread_stack_usage(void)
   return sz;
 }
 
+/* Hook for registering a signal */
+
+static int caml_thread_record_signal_hook(int signal_number) {
+  /* The signal can be received by a C thread which does not
+     correspond to the OCaml thread currently running.
+
+     In this case, we might not be allowed to handle the signal in the
+     currently running thread, since it could be masked. Hence, if the
+     receiving thread is not currently running, we simply record it to
+     be handled when the thread will be scheduled. This way, signals
+     are always handled by the right thread, even if triggered via
+     pthread_kill.
+  */
+  caml_thread_t handler_thread;
+
+  handler_thread = st_tls_get(thread_descriptor_key);
+
+  if(handler_thread == NULL)
+    /* This should not happen, except if threads are manually launched
+       in C by the user. Let's ignore the signal in this case. */
+    return 0;
+
+  if(handler_thread == curr_thread)
+    /* The handler thread is the currently executing thread. We
+       register it the usual way. */
+    return 1;
+
+  /* The handler thread is not the currently executing thread. We
+     remind the signal for future handling. */
+  handler_thread->pending_signals[signal_number] = 1;
+
+  return 0;
+}
+
 /* Create and setup a new thread info block.
    This block has no associated thread descriptor and
    is not inserted in the list of threads. */
@@ -339,6 +393,8 @@ static uintnat caml_thread_stack_usage(void)
 static caml_thread_t caml_thread_new_info(void)
 {
   caml_thread_t th;
+  int i;
+
   th = (caml_thread_t) caml_stat_alloc_noexc(sizeof(struct caml_thread_struct));
   if (th == NULL) return NULL;
   th->descr = Val_unit;         /* filled later */
@@ -376,6 +432,7 @@ static caml_thread_t caml_thread_new_info(void)
   th->backtrace_pos = 0;
   th->backtrace_buffer = NULL;
   th->backtrace_last_exn = Val_unit;
+  for (i = 0; i < NSIG; i++) th->pending_signals[i] = 0;
   return th;
 }
 
@@ -462,6 +519,7 @@ static void caml_thread_reinitialize(void)
 
 CAMLprim value caml_thread_initialize(value unit)   /* ML */
 {
+  int i;
   /* Protect against repeated initialization (PR#1325) */
   if (curr_thread != NULL) return Val_unit;
   /* OS-specific initialization */
@@ -479,6 +537,7 @@ CAMLprim value caml_thread_initialize(value unit)   /* ML */
   curr_thread->prev = curr_thread;
   all_threads = curr_thread;
   curr_thread->backtrace_last_exn = Val_unit;
+  for (i = 0; i < NSIG; i++) curr_thread->pending_signals[i] = 0;
 #ifdef NATIVE_CODE
   curr_thread->exit_buf = &caml_termination_jmpbuf;
 #endif
@@ -501,6 +560,7 @@ CAMLprim value caml_thread_initialize(value unit)   /* ML */
   caml_channel_mutex_unlock_exn = caml_io_mutex_unlock_exn;
   prev_stack_usage_hook = caml_stack_usage_hook;
   caml_stack_usage_hook = caml_thread_stack_usage;
+  caml_record_signal_hook = caml_thread_record_signal_hook;
   /* Set up fork() to reinitialize the thread machinery in the child
      (PR#4577) */
   st_atfork(caml_thread_reinitialize);
@@ -526,15 +586,23 @@ CAMLprim value caml_thread_cleanup(value unit)   /* ML */
 
 static void caml_thread_stop(void)
 {
+  caml_thread_t ct = curr_thread;
+  /* Make sure we no longer consider this thread as running for signal
+     handlers. */
+  curr_thread = NULL;
+
   /* PR#5188, PR#7220: some of the global runtime state may have
      changed as the thread was running, so we save it in the
      curr_thread data to make sure that the cleanup logic
      below uses accurate information. */
-  caml_thread_save_runtime_state();
+  caml_thread_save_runtime_state(ct);
   /* Signal that the thread has terminated */
-  caml_threadstatus_terminate(Terminated(curr_thread->descr));
+  caml_threadstatus_terminate(Terminated(ct->descr));
+  /* Forget the thread descriptor, so that the signal handler can no
+     longer read it. */
+  st_tls_set(thread_descriptor_key, NULL);
   /* Remove th from the doubly-linked list of threads and free its info block */
-  caml_thread_remove_info(curr_thread);
+  caml_thread_remove_info(ct);
   /* OS-specific cleanups */
   st_thread_cleanup();
   /* Release the runtime system */

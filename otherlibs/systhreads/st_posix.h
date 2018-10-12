@@ -40,6 +40,10 @@ typedef int st_retcode;
 
 #define SIGPREEMPTION SIGVTALRM
 
+#ifndef NSIG
+#define NSIG 64
+#endif
+
 /* OS-specific initialization */
 
 static int st_initialize(void)
@@ -348,8 +352,12 @@ static void * caml_thread_tick(void * arg)
     select(0, NULL, NULL, NULL, &timeout);
     /* The preemption signal should never cause a callback, so don't
      go through caml_handle_signal(), just record signal delivery via
-     caml_record_signal(). */
-    caml_record_signal(SIGPREEMPTION);
+     caml_record_signal_unmasked().
+
+     We use the _unmasked variant to make sure that the signal is
+     going to be handled by the currently executing thread, even
+     though we are executing this code from the ticking thread. */
+    caml_record_signal_unmasked(SIGPREEMPTION);
   }
   return NULL;
 }
@@ -382,10 +390,6 @@ static void st_decode_sigset(value vset, sigset_t * set)
     vset = Field(vset, 1);
   }
 }
-
-#ifndef NSIG
-#define NSIG 64
-#endif
 
 static value st_encode_sigset(sigset_t * set)
 {

@@ -68,7 +68,7 @@ void caml_process_pending_signals(void)
        in caml_garbage_collection
 */
 
-void caml_record_signal(int signal_number)
+void caml_record_signal_unmasked(int signal_number)
 {
   caml_pending_signals[signal_number] = 1;
   caml_signals_are_pending = 1;
@@ -77,6 +77,18 @@ void caml_record_signal(int signal_number)
 #else
   caml_young_limit = caml_young_alloc_end;
 #endif
+}
+
+/* Hook used by the systhread library for masking signals in a
+   per-thread fashion. */
+CAMLexport int (*caml_record_signal_hook)(int signal_number) = NULL;
+
+void caml_record_signal(int signal_number)
+{
+  if(caml_record_signal_hook == NULL ||
+     caml_record_signal_hook(signal_number)) {
+    caml_record_signal_unmasked(signal_number);
+  }
 }
 
 /* Management of blocking sections. */

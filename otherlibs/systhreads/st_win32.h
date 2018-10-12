@@ -40,6 +40,10 @@ typedef DWORD st_retcode;
 
 #define SIGPREEMPTION SIGTERM
 
+#ifndef NSIG
+#define NSIG 64
+#endif
+
 /* Thread-local storage associating a Win32 event to every thread. */
 static DWORD st_thread_sem_key;
 
@@ -404,8 +408,12 @@ static DWORD WINAPI caml_thread_tick(void * arg)
     Sleep(Thread_timeout);
     /* The preemption signal should never cause a callback, so don't
      go through caml_handle_signal(), just record signal delivery via
-     caml_record_signal(). */
-    caml_record_signal(SIGPREEMPTION);
+     caml_record_signal_unmasked().
+
+     We use the _unmasked variant to make sure that the signal is
+     going to be handled by the currently executing thread, even
+     though we are executing this code from the ticking thread. */
+    caml_record_signal_unmasked(SIGPREEMPTION);
   }
   return 0;
 }
