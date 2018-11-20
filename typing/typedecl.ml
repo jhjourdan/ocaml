@@ -132,14 +132,17 @@ let rec get_unboxed_type_representation env ty fuel =
   | Tconstr (p, args, _) ->
     begin match Env.find_type p env with
     | exception Not_found -> Some ty
+    | {type_immediate = true; _} -> Some Predef.type_int
     | {type_unboxed = {unboxed = false}} -> Some ty
     | {type_params; type_kind =
          Type_record ([{ld_type = ty2; _}], _)
        | Type_variant [{cd_args = Cstr_tuple [ty2]; _}]
        | Type_variant [{cd_args = Cstr_record [{ld_type = ty2; _}]; _}]}
 
-         -> get_unboxed_type_representation env
-             (Ctype.apply env type_params ty2 args) (fuel - 1)
+      ->
+        let ty2 = match ty2.desc with Tpoly (t, _) -> t | _ -> ty2 in
+        get_unboxed_type_representation env
+          (Ctype.apply env type_params ty2 args) (fuel - 1)
     | {type_kind=Type_abstract} -> None
           (* This case can occur when checking a recursive unboxed type
              declaration. *)
@@ -425,7 +428,6 @@ let transl_declaration env sdecl id =
     match sdecl.ptype_kind with
       | Ptype_abstract -> Ttype_abstract, Type_abstract
       | Ptype_variant scstrs ->
-        assert (scstrs <> []);
         if List.exists (fun cstr -> cstr.pcd_res <> None) scstrs then begin
           match cstrs with
             [] -> ()
@@ -683,6 +685,7 @@ let check_coherence env loc id decl =
               then [Includecore.Constraint]
               else
                 Includecore.type_declarations ~loc ~equality:true env
+                  ~mark:true
                   (Path.last path)
                   decl'
                   id
@@ -1306,7 +1309,7 @@ let transl_type_decl env rec_flag sdecl_list =
              match !current_slot with
              | Some slot -> slot := (name, td) :: !slot
              | None ->
-                 List.iter (fun (name, d) -> Env.mark_type_used env name d)
+                 List.iter (fun (name, d) -> Env.mark_type_used name d)
                    (get_ref slot);
                  old_callback ()
           );
@@ -1424,7 +1427,7 @@ let transl_extension_constructor env type_path type_params
         let (args, cstr_res) = Ctype.instance_constructor cdescr in
         let res, ret_type =
           if cdescr.cstr_generalized then
-            let params = Ctype.instance_list env type_params in
+            let params = Ctype.instance_list type_params in
             let res = Ctype.newconstr type_path params in
             let ret_type = Some (Ctype.newconstr type_path params) in
               res, ret_type
@@ -1573,7 +1576,7 @@ let transl_type_extension extend env loc styext =
   let ttype_params = make_params env styext.ptyext_params in
   let type_params = List.map (fun (cty, _) -> cty.ctyp_type) ttype_params in
   List.iter2 (Ctype.unify_var env)
-    (Ctype.instance_list env type_decl.type_params)
+    (Ctype.instance_list type_decl.type_params)
     type_params;
   let constructors =
     List.map (transl_extension_constructor env type_path
@@ -1795,7 +1798,7 @@ let transl_value_decl env loc valdecl =
 (* Translate a "with" constraint -- much simplified version of
     transl_type_decl. *)
 let transl_with_constraint env id row_path orig_decl sdecl =
-  Env.mark_type_used env (Ident.name id) orig_decl;
+  Env.mark_type_used (Ident.name id) orig_decl;
   reset_type_variables();
   Ctype.begin_def();
   let tparams = make_params env sdecl.ptype_params in

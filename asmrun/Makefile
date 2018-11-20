@@ -14,10 +14,11 @@
 #**************************************************************************
 
 include ../config/Makefile
+include ../Makefile.common
 
 LINKEDFILES=misc.c freelist.c major_gc.c minor_gc.c memory.c alloc.c array.c \
   compare.c ints.c floats.c str.c io.c extern.c intern.c hash.c sys.c \
-  parsing.c gc_ctrl.c terminfo.c md5.c obj.c lexing.c printexc.c callback.c \
+  parsing.c gc_ctrl.c md5.c obj.c lexing.c printexc.c callback.c \
   weak.c compact.c finalise.c meta.c custom.c main.c globroots.c memprof.c \
   $(UNIX_OR_WIN32).c dynlink.c signals.c debugger.c startup_aux.c \
   backtrace.c afl.c bigarray.c
@@ -26,8 +27,6 @@ LINKEDFILES=misc.c freelist.c major_gc.c minor_gc.c memory.c alloc.c array.c \
 # should be computed. It includes even the files that won't actually be
 # compiled on the platform where make depend is run
 sources := $(LINKEDFILES)
-
-INSTALL_LIBDIR=$(DESTDIR)$(LIBDIR)
 
 ifeq "$(UNIX_OR_WIN32)" "win32"
 LN = cp
@@ -53,6 +52,10 @@ ifeq "$(TOOLCHAIN)" "msvc"
 DFLAGS = $(CFLAGS) -DDEBUG
 PFLAGS=$(CFLAGS) -DPROFILING $(NATIVECCPROFOPTS)
 ASMOBJS=$(ARCH)nt.$(O)
+ASMFLAGS=
+ifeq ($(WITH_SPACETIME),true)
+ASMFLAGS=/DWITH_SPACETIME
+endif
 else
 DFLAGS = $(CFLAGS) -g -DDEBUG
 PFLAGS=$(CFLAGS) -pg -DPROFILING $(NATIVECCPROFOPTS)
@@ -72,12 +75,12 @@ COBJS=startup_aux.$(O) startup.$(O) main.$(O) fail.$(O)		\
   major_gc.$(O) minor_gc.$(O) memory.$(O) alloc.$(O) compare.$(O)	\
   ints.$(O) floats.$(O) str.$(O) array.$(O) io.$(O) extern.$(O)		\
   intern.$(O) hash.$(O) sys.$(O) parsing.$(O) gc_ctrl.$(O)		\
-  terminfo.$(O) md5.$(O) obj.$(O) lexing.$(O) $(UNIX_OR_WIN32).$(O)	\
+  md5.$(O) obj.$(O) lexing.$(O) $(UNIX_OR_WIN32).$(O)	\
   printexc.$(O) callback.$(O) weak.$(O) compact.$(O) finalise.$(O)	\
   custom.$(O) globroots.$(O) backtrace_prim.$(O) backtrace.$(O)		\
   natdynlink.$(O) debugger.$(O) meta.$(O) dynlink.$(O) memprof.$(O)	\
   clambda_checks.$(O) spacetime.$(O) spacetime_snapshot.$(O)		\
-  spacetime_offline.$(O) afl.$(O) bigarray.$(O)
+  afl.$(O) bigarray.$(O)
 
 OBJS=$(COBJS) $(ASMOBJS)
 
@@ -86,28 +89,30 @@ IOBJS=$(COBJS:.$(O)=.i.$(O)) $(ASMOBJS)
 POBJS=$(COBJS:.$(O)=.p.$(O)) $(ASMOBJS:.$(O)=.p.$(O))
 PICOBJS=$(COBJS:.$(O)=.pic.$(O)) $(ASMOBJS:.$(O)=.pic.$(O))
 
-TARGETS = libasmrun.$(A)
+TARGETS_A = libasmrun.$(A)
+TARGETS_SO=
 
 ifeq "$(RUNTIMED)" "true"
-TARGETS += libasmrund.$(A)
+TARGETS_A += libasmrund.$(A)
 endif
 
 ifeq "$(RUNTIMEI)" "true"
-TARGETS += libasmruni.$(A)
+TARGETS_A += libasmruni.$(A)
 endif
 
 ifeq "$(PROFILING)" "true"
-TARGETS += libasmrunp.$(A)
+TARGETS_A += libasmrunp.$(A)
 endif
 
 ifeq "$(UNIX_OR_WIN32)" "unix"
 ifeq "$(SUPPORTS_SHARED_LIBRARIES)" "true"
-TARGETS += libasmrun_pic.$(A) libasmrun_shared.$(SO)
+TARGETS_A += libasmrun_pic.$(A)
+TARGETS_SO += libasmrun_shared.$(SO)
 endif
 endif
 
 .PHONY: all
-all: $(TARGETS)
+all: $(TARGETS_A) $(TARGETS_SO)
 
 libasmrun.$(A): $(OBJS)
 	$(call MKLIB,$@, $^)
@@ -129,7 +134,10 @@ libasmrun_shared.$(SO): $(PICOBJS)
 
 .PHONY: install
 install:
-	cp $(TARGETS) "$(INSTALL_LIBDIR)"
+	$(INSTALL_DATA) $(TARGETS_A) "$(INSTALL_LIBDIR)"
+	if test -n "$(TARGETS_SO)"; then \
+	  $(INSTALL_PROG) $(TARGETS_SO) "$(INSTALL_LIBDIR)"; \
+	fi
 
 $(LINKEDFILES): %.c: ../byterun/%.c
 	$(LN) $< $@
@@ -163,10 +171,10 @@ $(LINKEDFILES): %.c: ../byterun/%.c
 	$(ASPP) $(ASPPFLAGS) $(SHAREDCCCOMPOPTS) -o $@ $<
 
 %.obj: %.asm
-	$(ASM)$@ $<
+	$(ASM)$@ $(ASMFLAGS) $<
 
 %.pic.obj: %.asm
-	$(ASM)$@ $<
+	$(ASM)$@ $(ASMFLAGS) $<
 
 .PHONY: clean
 clean:

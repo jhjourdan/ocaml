@@ -31,7 +31,7 @@ let rec eliminate_ref id = function
       Lapply{ap with ap_func = eliminate_ref id ap.ap_func;
                      ap_args = List.map (eliminate_ref id) ap.ap_args}
   | Lfunction _ as lam ->
-      if IdentSet.mem id (free_variables lam)
+      if Ident.Set.mem id (free_variables lam)
       then raise Real_reference
       else lam
   | Llet(str, kind, v, e1, e2) ->
@@ -92,22 +92,31 @@ let rec eliminate_ref id = function
 
 (* Simplification of exits *)
 
+type exit = {
+  mutable count: int;
+  mutable max_depth: int;
+}
+
 let simplify_exits lam =
 
   (* Count occurrences of (exit n ...) statements *)
   let exits = Hashtbl.create 17 in
 
-  let count_exit i =
-    try
-      !(Hashtbl.find exits i)
-    with
-    | Not_found -> 0
+  let try_depth = ref 0 in
 
-  and incr_exit i =
-    try
-      incr (Hashtbl.find exits i)
-    with
-    | Not_found -> Hashtbl.add exits i (ref 1) in
+  let get_exit i =
+    try Hashtbl.find exits i
+    with Not_found -> {count = 0; max_depth = 0}
+
+  and incr_exit i nb d =
+    match Hashtbl.find_opt exits i with
+    | Some r ->
+        r.count <- r.count + nb;
+        r.max_depth <- max r.max_depth d
+    | None ->
+        let r = {count = nb; max_depth = d} in
+        Hashtbl.add exits i r
+  in
 
   let rec count = function
   | (Lvar _| Lconst _) -> ()
@@ -133,25 +142,20 @@ let simplify_exits lam =
         | []|[_] -> count d
         | _ -> count d; count d (* default will get replicated *)
       end
-  | Lstaticraise (i,ls) -> incr_exit i ; List.iter count ls
+  | Lstaticraise (i,ls) -> incr_exit i 1 !try_depth; List.iter count ls
   | Lstaticcatch (l1,(i,[]),Lstaticraise (j,[])) ->
       (* i will be replaced by j in l1, so each occurrence of i in l1
          increases j's ref count *)
       count l1 ;
-      let ic = count_exit i in
-      begin try
-        let r = Hashtbl.find exits j in r := !r + ic
-      with
-      | Not_found ->
-          Hashtbl.add exits j (ref ic)
-      end
+      let ic = get_exit i in
+      incr_exit j ic.count (max !try_depth ic.max_depth)
   | Lstaticcatch(l1, (i,_), l2) ->
       count l1;
       (* If l1 does not contain (exit i),
          l2 will be removed, so don't count its exits *)
-      if count_exit i > 0 then
+      if (get_exit i).count > 0 then
         count l2
-  | Ltrywith(l1, _v, l2) -> count l1; count l2
+  | Ltrywith(l1, _v, l2) -> incr try_depth; count l1; decr try_depth; count l2
   | Lifthenelse(l1, l2, l3) -> count l1; count l2; count l3
   | Lsequence(l1, l2) -> count l1; count l2
   | Lwhile(l1, l2) -> count l1; count l2
@@ -176,6 +180,7 @@ let simplify_exits lam =
       end
   in
   count lam;
+  assert(!try_depth = 0);
 
   (*
      Second pass simplify  ``catch body with (i ...) handler''
@@ -261,11 +266,11 @@ let simplify_exits lam =
         let ys = List.map Ident.rename xs in
         let env =
           List.fold_right2
-            (fun x y t -> Ident.add x (Lvar y) t)
-            xs ys Ident.empty in
+            (fun x y t -> Ident.Map.add x (Lvar y) t)
+            xs ys Ident.Map.empty in
         List.fold_right2
           (fun y l r -> Llet (Alias, Pgenval, y, l, r))
-          ys ls (Lambda.subst_lambda env handler)
+          ys ls (Lambda.subst env handler)
       with
       | Not_found -> Lstaticraise (i,ls)
       end
@@ -273,15 +278,23 @@ let simplify_exits lam =
       Hashtbl.add subst i ([],simplif l2) ;
       simplif l1
   | Lstaticcatch (l1,(i,xs),l2) ->
-      begin match count_exit i with
-      | 0 -> simplif l1
-      | 1 when i >= 0 ->
-          Hashtbl.add subst i (xs,simplif l2) ;
-          simplif l1
-      | _ ->
-          Lstaticcatch (simplif l1, (i,xs), simplif l2)
-      end
-  | Ltrywith(l1, v, l2) -> Ltrywith(simplif l1, v, simplif l2)
+      let {count; max_depth} = get_exit i in
+      if count = 0 then
+        (* Discard staticcatch: not matching exit *)
+        simplif l1
+      else if count = 1 && max_depth <= !try_depth then begin
+        (* Inline handler if there is a single occurrence and it is not
+           nested within an inner try..with *)
+        assert(max_depth = !try_depth);
+        Hashtbl.add subst i (xs,simplif l2);
+        simplif l1
+      end else
+        Lstaticcatch (simplif l1, (i,xs), simplif l2)
+  | Ltrywith(l1, v, l2) ->
+      incr try_depth;
+      let l1 = simplif l1 in
+      decr try_depth;
+      Ltrywith(l1, v, simplif l2)
   | Lifthenelse(l1, l2, l3) -> Lifthenelse(simplif l1, simplif l2, simplif l3)
   | Lsequence(l1, l2) -> Lsequence(simplif l1, simplif l2)
   | Lwhile(l1, l2) -> Lwhile(simplif l1, simplif l2)
@@ -494,7 +507,7 @@ let simplify_lets lam =
   | Llet(StrictOpt, kind, v, l1, l2) ->
       begin match count_var v with
         0 -> simplif l2
-      | _ -> mklet Alias kind v (simplif l1) (simplif l2)
+      | _ -> mklet StrictOpt kind v (simplif l1) (simplif l2)
       end
   | Llet(str, kind, v, l1, l2) -> mklet str kind v (simplif l1) (simplif l2)
   | Lletrec(bindings, body) ->
@@ -569,7 +582,9 @@ let rec emit_tail_infos is_tail lambda =
   | Lletrec (bindings, body) ->
       List.iter (fun (_, lam) -> emit_tail_infos false lam) bindings;
       emit_tail_infos is_tail body
-  | Lprim ((Pidentity | Pbytes_to_string | Pbytes_of_string), [arg], _) ->
+  | Lprim (Pidentity, [arg], _) ->
+      emit_tail_infos is_tail arg
+  | Lprim ((Pbytes_to_string | Pbytes_of_string), [arg], _) ->
       emit_tail_infos is_tail arg
   | Lprim (Psequand, [arg1; arg2], _)
   | Lprim (Psequor, [arg1; arg2], _) ->
@@ -648,7 +663,7 @@ let split_default_wrapper ~id:fun_id ~kind ~params ~body ~attr ~loc =
         (* Check that those *opt* identifiers don't appear in the remaining
            body. This should not appear, but let's be on the safe side. *)
         let fv = Lambda.free_variables body in
-        List.iter (fun (id, _) -> if IdentSet.mem id fv then raise Exit) map;
+        List.iter (fun (id, _) -> if Ident.Set.mem id fv then raise Exit) map;
 
         let inner_id = Ident.create (Ident.name fun_id ^ "_inner") in
         let map_param p = try List.assoc p map with Not_found -> p in
@@ -667,10 +682,10 @@ let split_default_wrapper ~id:fun_id ~kind ~params ~body ~attr ~loc =
         let new_ids = List.map Ident.rename inner_params in
         let subst = List.fold_left2
             (fun s id new_id ->
-               Ident.add id (Lvar new_id) s)
-            Ident.empty inner_params new_ids
+               Ident.Map.add id (Lvar new_id) s)
+            Ident.Map.empty inner_params new_ids
         in
-        let body = Lambda.subst_lambda subst body in
+        let body = Lambda.subst subst body in
         let inner_fun =
           Lfunction { kind = Curried; params = new_ids; body; attr; loc; }
         in

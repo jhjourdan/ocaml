@@ -58,6 +58,7 @@ open Asttypes
 type type_expr =
   { mutable desc: type_desc;
     mutable level: int;
+    mutable scope: int option;
     id: int }
 
 and type_desc =
@@ -134,7 +135,7 @@ and type_desc =
     [< `X | `Y > `X ]  (row_closed = true)
 
     type t = [> `X ] as 'a      (row_more = Tvar a)
-    type t = private [> `X ]    (row_more = Tconstr (t#row, [], ref Mnil)
+    type t = private [> `X ]    (row_more = Tconstr (t#row, [], ref Mnil))
 
     And for:
 
@@ -473,7 +474,12 @@ and constructor_tag =
   | Cstr_extension of Path.t * bool     (* Extension constructor
                                            true if a constant false if a block*)
 
+(* Constructors are the same *)
 val equal_tag :  constructor_tag -> constructor_tag -> bool
+
+(* Constructors may be the same, given potential rebinding *)
+val may_equal_constr :
+    constructor_description ->  constructor_description -> bool
 
 type label_description =
   { lbl_name: string;                   (* Short name *)

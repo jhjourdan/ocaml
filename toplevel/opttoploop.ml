@@ -82,7 +82,7 @@ let toplevel_value id =
 
 let close_phrase lam =
   let open Lambda in
-  IdentSet.fold (fun id l ->
+  Ident.Set.fold (fun id l ->
     let glb, pos = toplevel_value id in
     let glob =
       Lprim (Pfield pos,
@@ -329,7 +329,7 @@ let execute_phrase print_outcome ppf phr =
               else
                 Compilenv.record_global_approx_toplevel ();
               if print_outcome then
-                Printtyp.wrap_printing_env oldenv (fun () ->
+                Printtyp.wrap_printing_env ~error:false oldenv (fun () ->
                 match str.str_items with
                 | [] -> Ophr_signature []
                 | _ ->

@@ -27,9 +27,10 @@ val string_of_path: Path.t -> string
 val raw_type_expr: formatter -> type_expr -> unit
 val string_of_label: Asttypes.arg_label -> string
 
-val wrap_printing_env: Env.t -> (unit -> 'a) -> 'a
+val wrap_printing_env: error:bool -> Env.t -> (unit -> 'a) -> 'a
     (* Call the function using the environment for type path shortening *)
     (* This affects all the printing functions below *)
+    (* Also, if [~error:true], then disable the loading of cmis *)
 
 val reset: unit -> unit
 val mark_loops: type_expr -> unit
@@ -75,7 +76,9 @@ val prepare_expansion: type_expr * type_expr -> type_expr * type_expr
 val trace:
     bool -> bool-> string -> formatter -> (type_expr * type_expr) list -> unit
 val report_unification_error:
-    formatter -> Env.t -> ?unif:bool -> (type_expr * type_expr) list ->
+    formatter -> Env.t -> ?unif:bool ->
+    (type_expr * type_expr) list ->
+    ?type_expected_explanation:(formatter -> unit) ->
     (formatter -> unit) -> (formatter -> unit) ->
     unit
 val report_subtyping_error:
@@ -88,3 +91,8 @@ val report_ambiguous_type_error:
 (* for toploop *)
 val print_items: (Env.t -> signature_item -> 'a option) ->
   Env.t -> signature_item list -> (out_sig_item * 'a option) list
+
+(* Simple heuristic to rewrite Foo__bar.* as Foo.Bar.* when Foo.Bar is an alias for
+   Foo__bar. This pattern is used by the stdlib. *)
+val rewrite_double_underscore_paths: Env.t -> Path.t -> Path.t
+

@@ -609,8 +609,7 @@ Linux AMD 64, they must contain only position-independent code).
 
 \item["-safe-string"]
 Enforce the separation between types "string" and "bytes",
-thereby making strings read-only. This will become the default in
-a future version of OCaml.
+thereby making strings read-only. This is the default.
 
 \item["-short-paths"]
 When a type is visible under several module-paths, use the shortest
@@ -632,12 +631,6 @@ Force the left-hand part of each sequence to have type unit.
 Reject invalid formats that were accepted in legacy format
 implementations. You should use this flag to detect and fix such
 invalid formats, as they will be rejected by future OCaml versions.
-
-\notop{%
-\item["-thread"]
-Compile or link multithreaded programs, in combination with the
-system "threads" library described in chapter~\ref{c:threads}.
-}%notop
 
 \notop{%
 \item["-unboxed-types"]
@@ -665,10 +658,9 @@ unspecified result instead of raising a "Division_by_zero" exception.
 }%notop
 
 \item["-unsafe-string"]
-Identify the types "string" and "bytes",
-thereby making strings writable. For reasons of backward compatibility,
-this is the default setting for the moment, but this will change in a future
-version of OCaml.
+Identify the types "string" and "bytes", thereby making strings writable.
+This is intended for compatibility with old source code and should not
+be used with new software.
 
 \comp{%
 \item["-use-runtime" \var{runtime-name}]

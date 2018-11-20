@@ -611,8 +611,7 @@ suffix is supported and gives a debug version of the runtime.
 .B \-safe\-string
 Enforce the separation between types
 .BR string \ and\  bytes ,
-thereby making strings read-only. This will become the default in
-a future version of OCaml.
+thereby making strings read-only. This is the default.
 .TP
 .B \-short\-paths
 When a type is visible under several module-paths, use the shortest
@@ -621,11 +620,6 @@ warning messages.
 .TP
 .B \-strict\-sequence
 Force the left-hand part of each sequence to have type unit.
-.TP
-.B \-thread
-Compile or link multithreaded programs, in combination with the
-system "threads" library described in
-.IR The\ OCaml\ user's\ manual .
 .TP
 .B \-unboxed\-types
 When a type is unboxable (i.e. a record with a single argument or a
@@ -650,9 +644,9 @@ accesses an array or string outside of its bounds.
 .B \-unsafe\-string
 Identify the types
 .BR string \ and\  bytes ,
-thereby making strings writable. For reasons of backward compatibility,
-this is the default setting for the moment, but this will change in a future
-version of OCaml.
+thereby making strings writable.
+This is intended for compatibility with old source code and should not
+be used with new software.
 .TP
 .BI \-use\-runtime \ runtime\-name
 Generate a bytecode executable file that can be executed on the custom

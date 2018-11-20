@@ -16,6 +16,8 @@
 ROOTDIR = ..
 
 include $(ROOTDIR)/config/Makefile
+include $(ROOTDIR)/Makefile.common
+
 OCAMLRUN ?= $(ROOTDIR)/boot/ocamlrun
 OCAMLYACC ?= $(ROOTDIR)/boot/ocamlyacc
 
@@ -38,7 +40,7 @@ OCAMLLEX  = $(OCAMLRUN) $(ROOTDIR)/boot/ocamllex
 # If they are not, then the preprocessor logic (including the
 # remove_DEBUG script and the debug target) could be removed.
 # If they are, it may be better to be able to enable them at run-time
-# rather than compile-time, e.g. through a -debug command-line option. 
+# rather than compile-time, e.g. through a -debug command-line option.
 # In the following line, "sh" is useful under Windows. Without it,
 # the ./remove_DEBUG command would be executed by cmd.exe which would not
 # know how to handle it.
@@ -72,16 +74,9 @@ OCAMLDOC_LIBCMI=odoc_info.cmi
 OCAMLDOC_LIBCMXA=odoc_info.cmxa
 OCAMLDOC_LIBA=odoc_info.$(A)
 
-INSTALL_LIBDIR=$(DESTDIR)$(LIBDIR)/ocamldoc
-
-INSTALL_BINDIR=$(DESTDIR)$(BINDIR)
-
-#MANO: man ocamldoc
-INSTALL_MANODIR=$(DESTDIR)$(MANDIR)/man3
-
-INSTALL_MLIS=odoc_info.mli
-INSTALL_CMIS=$(INSTALL_MLIS:.mli=.cmi)
-INSTALL_CMTS=$(INSTALL_MLIS:.mli=.cmt) $(INSTALL_MLIS:.mli=.cmti)
+OCAMLDOC_LIBMLIS=odoc_info.mli
+OCAMLDOC_LIBCMIS=$(OCAMLDOC_LIBMLIS:.mli=.cmi)
+OCAMLDOC_LIBCMTS=$(OCAMLDOC_LIBMLIS:.mli=.cmt) $(OCAMLDOC_LIBMLIS:.mli=.cmti)
 
 ODOC_TEST=odoc_test.cmo
 GENERATORS_CMOS= \
@@ -97,8 +92,8 @@ endif
 #############
 
 INCLUDES_DEP=\
-  -I $(ROOTDIR)/parsing \
   -I $(ROOTDIR)/utils \
+  -I $(ROOTDIR)/parsing \
   -I $(ROOTDIR)/typing \
   -I $(ROOTDIR)/driver \
   -I $(ROOTDIR)/bytecomp \
@@ -179,12 +174,6 @@ LIBCMOFILES = $(CMOFILES)
 LIBCMXFILES = $(LIBCMOFILES:.cmo=.cmx)
 LIBCMIFILES = $(LIBCMOFILES:.cmo=.cmi)
 
-STDLIB_MLIS=\
-  ../stdlib/*.mli \
-  ../parsing/*.mli \
-  ../otherlibs/$(UNIXLIB)/unix.mli \
-  ../otherlibs/str/str.mli \
-  ../otherlibs/bigarray/bigarray.mli
 
 .PHONY: all
 all: lib exe generators manpages
@@ -295,15 +284,23 @@ odoc_see_lexer.ml: odoc_see_lexer.mll
 # TODO: it may be good to split the following rule in several ones, e.g.
 # install-programs, install-doc, install-libs
 
+INSTALL_MANODIR=$(INSTALL_MANDIR)/man3
+
 .PHONY: install
 install:
 	$(MKDIR) "$(INSTALL_BINDIR)"
-	$(MKDIR) "$(INSTALL_LIBDIR)"
+	$(MKDIR) "$(INSTALL_LIBDIR)/ocamldoc"
 	$(MKDIR) "$(INSTALL_MANODIR)"
-	$(CP) $(OCAMLDOC) "$(INSTALL_BINDIR)/$(OCAMLDOC)$(EXE)"
-	$(CP) ocamldoc.hva *.cmi $(OCAMLDOC_LIBCMA) "$(INSTALL_LIBDIR)"
-	$(CP) $(INSTALL_MLIS) $(INSTALL_CMIS) $(INSTALL_CMTS) "$(INSTALL_LIBDIR)"
-	if test -d stdlib_man; then $(CP) stdlib_man/* "$(INSTALL_MANODIR)"; else : ; fi
+	$(INSTALL_PROG) $(OCAMLDOC) "$(INSTALL_BINDIR)/$(OCAMLDOC)$(EXE)"
+	$(INSTALL_DATA) \
+	  ocamldoc.hva *.cmi $(OCAMLDOC_LIBCMA) \
+	  "$(INSTALL_LIBDIR)/ocamldoc"
+	$(INSTALL_DATA) \
+	  $(OCAMLDOC_LIBMLIS) $(OCAMLDOC_LIBCMIS) $(OCAMLDOC_LIBCMTS) \
+	  "$(INSTALL_LIBDIR)/ocamldoc"
+	if test -d stdlib_man; then \
+	  $(INSTALL_DATA) stdlib_man/* "$(INSTALL_MANODIR)"; \
+	else : ; fi
 
 # Note: at the moment, $(INSTALL_MANODIR) is created even if the doc has
 # not been built. This is not clean and should be changed.
@@ -315,11 +312,15 @@ installopt:
 .PHONY: installopt_really
 installopt_really:
 	$(MKDIR) "$(INSTALL_BINDIR)"
-	$(MKDIR) "$(INSTALL_LIBDIR)"
-	$(CP) $(OCAMLDOC_OPT) "$(INSTALL_BINDIR)/$(OCAMLDOC_OPT)$(EXE)"
-	$(CP) $(INSTALL_MLIS) $(INSTALL_CMIS) $(INSTALL_CMTS) "$(INSTALL_LIBDIR)"
-	$(CP) ocamldoc.hva *.cmx $(OCAMLDOC_LIBA) $(OCAMLDOC_LIBCMXA) \
-	  "$(INSTALL_LIBDIR)"
+	$(MKDIR) "$(INSTALL_LIBDIR)/ocamldoc"
+	$(INSTALL_PROG) \
+	   $(OCAMLDOC_OPT) "$(INSTALL_BINDIR)/$(OCAMLDOC_OPT)$(EXE)"
+	$(INSTALL_DATA) \
+	  $(OCAMLDOC_LIBMLIS) $(OCAMLDOC_LIBCMIS) $(OCAMLDOC_LIBCMTS) \
+	  "$(INSTALL_LIBDIR)/ocamldoc"
+	$(INSTALL_DATA) \
+	  ocamldoc.hva *.cmx $(OCAMLDOC_LIBA) $(OCAMLDOC_LIBCMXA) \
+	  "$(INSTALL_LIBDIR)/ocamldoc"
 
 # TODO: also split into several rules
 
@@ -339,7 +340,7 @@ test:
 test_stdlib:
 	$(MKDIR) $@
 	$(OCAMLDOC_RUN) -html -colorize-code -sort -d $@ $(INCLUDES) -dump $@/stdlib.odoc -keep-code \
-	../stdlib/pervasives.ml ../stdlib/*.mli \
+	../stdlib/*.mli \
 	../otherlibs/$(UNIXLIB)/unix.mli \
 	../otherlibs/str/str.mli
 
@@ -382,24 +383,69 @@ test_texi:
 	$(MKDIR) $@
 	$(OCAMLDOC_RUN) -texi -sort -d $@ $(INCLUDES) odoc*.ml odoc*.mli
 
-stdlib_man/Pervasives.3o: $(OCAMLDOC) $(STDLIB_MLIS)
-	$(MKDIR) stdlib_man
-	$(OCAMLDOC_RUN) -man -d stdlib_man $(INCLUDES) \
-	-t "OCaml library" -man-mini $(STDLIB_MLIS)
+# stdlib non-prefixed :
+#######################
+SRC=$(ROOTDIR)
+include Makefile.unprefix
 
-stdlib_html/Pervasives.html: $(STDLIB_MLIS)
+stdlib_man/Pervasives.3o: $(OCAMLDOC) $(STDLIB_MLIS) $(STDLIB_CMIS)
+	$(MKDIR) stdlib_man
+	$(OCAMLDOC_RUN) -man -d stdlib_man -nostdlib -I stdlib_non_prefixed \
+	-t "OCaml library" -man-mini $(STDLIB_MLIS) \
+	-initially-opened-module Pervasives
+
+stdlib_html/Pervasives.html: $(OCAMLDOC) $(STDLIB_MLIS) $(STDLIB_CMIS)
 	$(MKDIR) stdlib_html
-	$(OCAMLDOC_RUN) -d stdlib_html -html $(INCLUDES) \
-	-t "OCaml library" $^
+	$(OCAMLDOC_RUN) -d stdlib_html -html -nostdlib -I stdlib_non_prefixed \
+	-t "OCaml library" $(STDLIB_MLIS) \
+	-initially-opened-module Pervasives
 
 .PHONY: autotest_stdlib
 autotest_stdlib:
 	$(MKDIR) $@
 	$(OCAMLDOC_RUN) -g autotest/odoc_test.cmo\
 	$(INCLUDES) -keep-code \
-	../stdlib/pervasives.ml ../stdlib/*.mli \
+	../stdlib/*.mli \
 	../otherlibs/$(UNIXLIB)/unix.mli \
 	../otherlibs/str/str.mli
+
+
+# odoc rules :
+##############
+
+.PHONY: odoc
+odoc:
+	rm -rf odoc
+	$(MKDIR) odoc
+	# .cmti --> .odoc
+	for fn in ../stdlib/stdlib*.cmti; do \
+	  odoc compile $(INCLUDES) --package stdlib ../stdlib/$$fn; \
+	done
+	for lib in str bigarray; do \
+	  odoc compile $(INCLUDES) --package $$lib ../otherlibs/$$lib/$$lib.cmti; \
+	done
+	odoc compile $(INCLUDES) --package unix ../otherlibs/$(UNIXLIB)/unix.cmti
+	for fn in ../parsing/*.cmti; do \
+	  odoc compile $(INCLUDES) --package parsing ../parsing/$$fn; \
+	done
+	# .odoc --> .html
+	odoc html $(INCLUDES) --output-dir odoc ../stdlib/stdlib.odoc
+	for lib in str bigarray $(UNIXLIB); do \
+	  odoc html $(INCLUDES) --output-dir odoc ../otherlibs/$$lib/$$lib.odoc; \
+	done
+	for fn in ../parsing/*.odoc; do \
+	  odoc html $(INCLUDES) --output-dir odoc $$fn; \
+	done
+	for d in odoc/*; do \
+	  lib=`basename $$d`; \
+	  cd $$d; \
+	  echo -e The $$lib 'library.\n\nModules\n:{!modules:' * '}' > ../../index.mld; \
+	  cd ../..; \
+	  odoc html $(INCLUDES) --output-dir odoc --index-for=$$lib index.mld; \
+	  rm -f index.mld; \
+	done
+	cp odoc_index.html odoc/index.html
+	odoc css -o odoc
 
 # backup, clean and depend :
 ############################
@@ -411,8 +457,9 @@ clean:
 	rm -f odoc_parser.output odoc_text_parser.output
 	rm -f odoc_lexer.ml odoc_text_lexer.ml odoc_see_lexer.ml odoc_ocamlhtml.ml
 	rm -f odoc_parser.ml odoc_parser.mli odoc_text_parser.ml odoc_text_parser.mli
-	rm -rf stdlib_man
+	rm -rf stdlib_man stdlib_html
 	rm -f generators/*.cm[taiox] generators/*.$(A) generators/*.$(O) generators/*.cmx[as]
+	rm -f stdlib_non_prefixed/*.mli stdlib_non_prefixed/*.cmi
 
 .PHONY: depend
 depend:

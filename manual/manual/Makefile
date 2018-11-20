@@ -13,25 +13,12 @@ SRC = $(abspath ../../)
 
 export LD_LIBRARY_PATH ?= $(SRC)/otherlibs/unix/:$(SRC)/otherlibs/str/
 export DYLD_LIBRARY_PATH ?= $(SRC)/otherlibs/unix/:$(SRC)/otherlibs/str/
+SET_LD_PATH=CAML_LD_LIBRARY_PATH=$(LD_LIBRARY_PATH)
 
 OCAMLDOC=$(if $(wildcard $(SRC)/ocamldoc/ocamldoc.opt),\
  $(SRC)/ocamldoc/ocamldoc.opt,\
- $(SRC)/byterun/ocamlrun $(SRC)/ocamldoc/ocamldoc)\
- -hide Pervasives
-
-MLIS=$(SRC)/stdlib/*.mli \
-	$(SRC)/utils/*.mli \
-	$(SRC)/parsing/*.mli \
-	$(SRC)/driver/pparse.mli \
-	$(SRC)/typing/typemod.mli \
-	$(SRC)/bytecomp/simplif.mli \
-	$(SRC)/otherlibs/bigarray/bigarray.mli \
-	$(SRC)/otherlibs/dynlink/dynlink.mli \
-	$(SRC)/otherlibs/graph/graphics.mli \
-	$(SRC)/otherlibs/graph/graphicsX11.mli \
-	$(SRC)/otherlibs/str/*.mli \
-	$(SRC)/otherlibs/systhreads/*.mli \
-	$(SRC)/otherlibs/unix/*.mli
+ $(SET_LD_PATH) $(SRC)/byterun/ocamlrun $(SRC)/ocamldoc/ocamldoc)\
+ -hide Pervasives -nostdlib -initially-opened-module Pervasives
 
 manual: files
 	cd texstuff; \
@@ -53,24 +40,17 @@ index::
 	  makeindex pdfmanual.idx
 	cd texstuff; makeindex pdfmanual.kwd.idx
 
-html: files
+
+# Copy and unprefix the standard library when needed
+include $(SRC)/ocamldoc/Makefile.unprefix
+
+html: files $(STDLIB_CMIS)
 	cd htmlman; \
 	mkdir -p libref ; \
 	$(OCAMLDOC) -colorize-code -sort -html \
 	-d libref \
-	-I $(SRC)/stdlib  \
-	-I $(SRC)/utils  \
-	-I $(SRC)/parsing \
-	-I $(SRC)/driver \
-	-I $(SRC)/typing \
-	-I $(SRC)/bytecomp \
-	-I $(SRC)/otherlibs/bigarray \
-	-I $(SRC)/otherlibs/dynlink \
-	-I $(SRC)/otherlibs/graph \
-	-I $(SRC)/otherlibs/str \
-	-I $(SRC)/otherlibs/systhreads \
-	-I $(SRC)/otherlibs/unix \
-	$(MLIS) ; \
+	-I $(STDLIB_UNPREFIXED) \
+	$(STDLIB_MLIS) ; \
 	cp -f ../style.css libref ; \
 	${HEVEA} ${HTML} -I .. -I ../refman -I ../library -I ../cmds \
 	         -I ../tutorials -I ../../styles -I ../texstuff manual.hva \
@@ -136,6 +116,7 @@ release:
 .SUFFIXES:
 .SUFFIXES: .tex .etex .htex
 
+
 .etex.tex:
 	../tools/texquote2 < $*.etex > $*.tex
 
@@ -150,7 +131,7 @@ warnings-help.etex: $(SRC)/utils/warnings.ml $(SRC)/ocamlc
 	 echo "% are inserted through the Makefile, which should be updated";\
 	 echo "% when a new warning is documented.";\
 	 echo "%";\
-	$(SRC)/boot/ocamlrun $(SRC)/ocamlc -warn-help \
+	$(SET_LD_PATH) $(SRC)/boot/ocamlrun $(SRC)/ocamlc -warn-help \
 	| sed -e 's/^ *\([0-9A-Z][0-9]*\)\(.*\)/\\item[\1] \2/'\
 	) >$@
 #	sed --inplace is not portable, emulate

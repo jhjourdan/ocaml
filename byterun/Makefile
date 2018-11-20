@@ -14,10 +14,7 @@
 #**************************************************************************
 
 include ../config/Makefile
-
-INSTALL_BINDIR=$(DESTDIR)$(BINDIR)
-INSTALL_LIBDIR=$(DESTDIR)$(LIBDIR)
-INSTALL_INCDIR=$(INSTALL_LIBDIR)/caml
+include ../Makefile.common
 
 # The PROGRAMS (resp. LIBRARIES) variable list the files to build and
 # install as programs in $(INSTALL_BINDIR) (resp. libraries in
@@ -25,6 +22,7 @@ INSTALL_INCDIR=$(INSTALL_LIBDIR)/caml
 
 PROGRAMS = ocamlrun$(EXE)
 LIBRARIES = ld.conf libcamlrun.$(A)
+DYNLIBRARIES=
 
 ifeq "$(RUNTIMED)" "true"
 PROGRAMS += ocamlrund$(EXE)
@@ -38,7 +36,8 @@ endif
 
 ifeq "$(UNIX_OR_WIN32)" "unix"
 ifeq "$(SUPPORTS_SHARED_LIBRARIES)" "true"
-LIBRARIES += libcamlrun_pic.$(A) libcamlrun_shared.$(SO)
+LIBRARIES += libcamlrun_pic.$(A)
+DYNLIBRARIES += libcamlrun_shared.$(SO)
 endif
 endif
 
@@ -89,15 +88,16 @@ endif
 PRIMS=\
   alloc.c array.c compare.c extern.c floats.c gc_ctrl.c hash.c \
   intern.c interp.c ints.c io.c lexing.c md5.c meta.c obj.c parsing.c \
-  signals.c str.c sys.c terminfo.c callback.c weak.c finalise.c stacks.c \
-  dynlink.c backtrace_prim.c backtrace.c spacetime.c memprof.c afl.c
+  signals.c str.c sys.c callback.c weak.c finalise.c stacks.c \
+  dynlink.c backtrace_prim.c backtrace.c spacetime.c afl.c \
+  bigarray.c memprof.c
 
 OBJS=$(addsuffix .$(O), \
   interp misc stacks fix_code startup_aux startup \
   freelist major_gc minor_gc memory alloc roots globroots \
   fail signals signals_byt printexc backtrace_prim backtrace \
   compare ints floats str array io extern intern \
-  hash sys meta parsing gc_ctrl terminfo md5 obj \
+  hash sys meta parsing gc_ctrl md5 obj \
   lexing callback debugger weak compact finalise custom \
   dynlink spacetime memprof afl $(UNIX_OR_WIN32) bigarray main)
 
@@ -106,18 +106,23 @@ IOBJS=$(OBJS:.$(O)=.i.$(O))
 PICOBJS=$(OBJS:.$(O)=.pic.$(O))
 
 .PHONY: all
-all: $(LIBRARIES) $(PROGRAMS)
+all: $(LIBRARIES) $(DYNLIBRARIES) $(PROGRAMS)
 
 ld.conf: ../config/Makefile
 	echo "$(STUBLIBDIR)" > $@
 	echo "$(LIBDIR)" >> $@
 
+INSTALL_INCDIR=$(INSTALL_LIBDIR)/caml
+
 .PHONY: install
 install:
-	cp $(PROGRAMS) "$(INSTALL_BINDIR)"
-	cp $(LIBRARIES) "$(INSTALL_LIBDIR)"
+	$(INSTALL_PROG) $(PROGRAMS) "$(INSTALL_BINDIR)"
+	$(INSTALL_DATA) $(LIBRARIES) "$(INSTALL_LIBDIR)"
+	if test -n "$(DYNLIBRARIES)"; then \
+	  $(INSTALL_PROG) $(DYNLIBRARIES) "$(INSTALL_LIBDIR)"; \
+	fi
 	mkdir -p "$(INSTALL_INCDIR)"
-	cp caml/*.h "$(INSTALL_INCDIR)"
+	$(INSTALL_DATA) caml/*.h "$(INSTALL_INCDIR)"
 
 # If primitives contain duplicated lines (e.g. because the code is defined
 # like
@@ -156,24 +161,25 @@ prims.c : primitives
 	 echo '	 0 };') > prims.c
 
 caml/opnames.h : caml/instruct.h
+	cat $^ | tr -d '\r' | \
 	sed -e '/\/\*/d' \
 	    -e '/^#/d' \
 	    -e 's/enum /char * names_of_/' \
 	    -e 's/{$$/[] = {/' \
-	    -e 's/\([[:upper:]][[:upper:]_0-9]*\)/"\1"/g' caml/instruct.h \
-	    > caml/opnames.h
+	    -e 's/\([[:upper:]][[:upper:]_0-9]*\)/"\1"/g' > $@
 
 # caml/jumptbl.h is required only if you have GCC 2.0 or later
 caml/jumptbl.h : caml/instruct.h
+	cat $^ | tr -d '\r' | \
 	sed -n -e '/^  /s/ \([A-Z]\)/ \&\&lbl_\1/gp' \
-	       -e '/^}/q' caml/instruct.h > caml/jumptbl.h
+	       -e '/^}/q' > $@
 
 caml/version.h : ../VERSION ../tools/make-version-header.sh
 	../tools/make-version-header.sh ../VERSION > caml/version.h
 
 .PHONY: clean
 clean:
-	rm -f $(LIBRARIES) $(PROGRAMS) *.$(O) *.$(A) *.$(SO)
+	rm -f $(LIBRARIES) $(DYNLIBRARIES) $(PROGRAMS) *.$(O) *.$(A) *.$(SO)
 	rm -f primitives prims.c caml/opnames.h caml/jumptbl.h
 	rm -f caml/version.h
 

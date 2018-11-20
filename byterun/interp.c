@@ -798,13 +798,13 @@ value caml_interprete(code_t prog, asize_t prog_size)
       sp += 2;
       Next;
 
-/* String operations */
-
+/* Bytes/String operations */
     Instruct(GETSTRINGCHAR):
+    Instruct(GETBYTESCHAR):
       accu = Val_int(Byte_u(accu, Long_val(sp[0])));
       sp += 1;
       Next;
-    Instruct(SETSTRINGCHAR):
+    Instruct(SETBYTESCHAR):
       Byte_u(accu, Long_val(sp[0])) = Int_val(sp[1]);
       sp += 2;
       accu = Val_unit;
@@ -1022,10 +1022,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
     Instruct(LSLINT):
       accu = (value)((((intnat) accu - 1) << Long_val(*sp++)) + 1); Next;
     Instruct(LSRINT):
-      accu = (value)((((uintnat) accu - 1) >> Long_val(*sp++)) | 1);
-      Next;
+      accu = (value)((((uintnat) accu) >> Long_val(*sp++)) | 1); Next;
     Instruct(ASRINT):
-      accu = (value)((((intnat) accu - 1) >> Long_val(*sp++)) | 1); Next;
+      accu = (value)((((intnat) accu) >> Long_val(*sp++)) | 1); Next;
 
 #define Integer_comparison(typ,opname,tst) \
     Instruct(opname): \

@@ -198,7 +198,7 @@ let end_gen_implementation ?toplevel ppf
 
 let flambda_gen_implementation ?toplevel ~backend ppf
     (program:Flambda.program) =
-  let export = Build_export_info.build_export_info ~backend program in
+  let export = Build_export_info.build_transient ~backend program in
   let (clambda, preallocated, constants) =
     Profile.record_call "backend" (fun () ->
       (program, export)
@@ -230,7 +230,7 @@ let lambda_gen_implementation ?toplevel ppf
       symbol = Compilenv.make_symbol None;
       exported = true;
       tag = 0;
-      size = lambda.main_module_block_size;
+      fields = List.init lambda.main_module_block_size (fun _ -> None);
     }
   in
   let clambda_and_constants =

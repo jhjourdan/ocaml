@@ -16,16 +16,22 @@
 # The main Makefile
 
 # Hard bootstrap how-to:
-# (only necessary in some cases, for example if you remove some primitive)
+# (only necessary if you remove or rename some primitive)
 #
-# make coreboot     [old system -- you were in a stable state]
-# <change the source>
-# make clean runtime coreall
-# <debug your changes>
-# make clean runtime coreall
+# make core     [old system -- you were in a stable state]
+# make coreboot [optional -- check state stability]
+# <add new primitives and remove uses of old primitives>
+# make clean && make core
+# if the above fails:
+#     <debug your changes>
+#     make clean && make core
+# make coreboot [intermediate state with both old and new primitives]
+# <remove old primitives>
+# make clean && make runtime && make coreall
 # make coreboot [new system -- now in a stable state]
 
 include config/Makefile
+include Makefile.common
 
 # For users who don't read the INSTALL file
 .PHONY: defaultentry
@@ -72,7 +78,7 @@ endif
 
 YACCFLAGS=-v --strict
 CAMLLEX=$(CAMLRUN) boot/ocamllex
-CAMLDEP=$(CAMLRUN) tools/ocamldep
+CAMLDEP=$(CAMLRUN) boot/ocamlc -depend
 DEPFLAGS=$(INCLUDES)
 
 OCAMLDOC_OPT=$(WITH_OCAMLDOC:=.opt)
@@ -83,6 +89,7 @@ UTILS=utils/config.cmo utils/misc.cmo \
   utils/terminfo.cmo utils/ccomp.cmo utils/warnings.cmo \
   utils/consistbl.cmo \
   utils/strongly_connected_components.cmo \
+  utils/build_path_prefix_map.cmo \
   utils/targetint.cmo
 
 PARSING=parsing/location.cmo parsing/longident.cmo \
@@ -104,16 +111,15 @@ TYPING=typing/ident.cmo typing/path.cmo \
   typing/typedtreeIter.cmo typing/typedtreeMap.cmo \
   typing/tast_mapper.cmo \
   typing/cmt_format.cmo typing/untypeast.cmo \
-  typing/includemod.cmo typing/typetexp.cmo typing/parmatch.cmo \
-  typing/stypes.cmo typing/typedecl.cmo typing/typeopt.cmo typing/typecore.cmo \
-  typing/typeclass.cmo \
-  typing/typemod.cmo
+  typing/includemod.cmo typing/typetexp.cmo typing/printpat.cmo \
+  typing/parmatch.cmo typing/stypes.cmo typing/typedecl.cmo typing/typeopt.cmo \
+  typing/typecore.cmo typing/typeclass.cmo typing/typemod.cmo
 
 COMP=bytecomp/lambda.cmo bytecomp/printlambda.cmo \
   bytecomp/semantics_of_primitives.cmo \
   bytecomp/switch.cmo bytecomp/matching.cmo \
   bytecomp/translobj.cmo bytecomp/translattribute.cmo \
-  bytecomp/translcore.cmo \
+  bytecomp/translprim.cmo bytecomp/translcore.cmo \
   bytecomp/translclass.cmo bytecomp/translmod.cmo \
   bytecomp/simplif.cmo bytecomp/runtimedef.cmo \
   bytecomp/meta.cmo bytecomp/opcodes.cmo \
@@ -161,6 +167,7 @@ ASMCOMP=\
   asmcomp/export_info_for_pack.cmo \
   asmcomp/compilenv.cmo \
   asmcomp/closure.cmo \
+	asmcomp/traverse_for_exported_symbols.cmo \
   asmcomp/build_export_info.cmo \
   asmcomp/closure_offsets.cmo \
   asmcomp/flambda_to_clambda.cmo \
@@ -193,6 +200,7 @@ MIDDLE_END=\
   middle_end/base_types/tag.cmo \
   middle_end/base_types/linkage_name.cmo \
   middle_end/base_types/compilation_unit.cmo \
+  middle_end/internal_variable_names.cmo \
   middle_end/base_types/variable.cmo \
   middle_end/base_types/mutable_variable.cmo \
   middle_end/base_types/id_types.cmo \
@@ -200,6 +208,7 @@ MIDDLE_END=\
   middle_end/base_types/set_of_closures_origin.cmo \
   middle_end/base_types/closure_element.cmo \
   middle_end/base_types/closure_id.cmo \
+  middle_end/base_types/closure_origin.cmo \
   middle_end/base_types/var_within_closure.cmo \
   middle_end/base_types/static_exception.cmo \
   middle_end/base_types/export_id.cmo \
@@ -269,19 +278,14 @@ MAXSAVED=boot/Saved/Saved.prev/Saved.prev/Saved.prev/Saved.prev/Saved.prev
 
 COMPLIBDIR=$(LIBDIR)/compiler-libs
 
-INSTALL_BINDIR=$(DESTDIR)$(BINDIR)
-INSTALL_LIBDIR=$(DESTDIR)$(LIBDIR)
-INSTALL_COMPLIBDIR=$(DESTDIR)$(COMPLIBDIR)
-INSTALL_STUBLIBDIR=$(DESTDIR)$(STUBLIBDIR)
-INSTALL_MANDIR=$(DESTDIR)$(MANDIR)
-INSTALL_FLEXDLL=$(INSTALL_LIBDIR)/flexdll
-
+TOPINCLUDES=$(addprefix -I otherlibs/,$(filter-out %threads,$(OTHERLIBRARIES)))
 RUNTOP=./byterun/ocamlrun ./ocaml \
   -nostdlib -I stdlib \
-  -noinit $(TOPFLAGS) \
-  -I otherlibs/$(UNIXLIB)
-NATRUNTOP=./ocamlnat$(EXE) -nostdlib -I stdlib -noinit $(TOPFLAGS)
-ifeq "UNIX_OR_WIN32" "unix"
+  -noinit $(TOPFLAGS) $(TOPINCLUDES)
+NATRUNTOP=./ocamlnat$(EXE) \
+  -nostdlib -I stdlib \
+  -noinit $(TOPFLAGS) $(TOPINCLUDES)
+ifeq "$(UNIX_OR_WIN32)" "unix"
 EXTRAPATH=
 else
 EXTRAPATH = PATH="otherlibs/win32unix:$(PATH)"
@@ -332,6 +336,7 @@ utils/config.ml: utils/config.mlp config/Makefile Makefile
 	    $(call SUBST,EXT_LIB) \
 	    $(call SUBST,EXT_OBJ) \
 	    $(call SUBST,FLAMBDA) \
+	    $(call SUBST,WITH_FLAMBDA_INVARIANTS) \
 	    $(call SUBST,FLEXLINK_FLAGS) \
 	    $(call SUBST_QUOTE,FLEXDLL_DIR) \
 	    $(call SUBST,HOST) \
@@ -400,11 +405,7 @@ coreall:
 # Build the core system: the minimum needed to make depend and bootstrap
 .PHONY: core
 core:
-ifeq "$(UNIX_OR_WIN32)" "unix"
 	$(MAKE) coldstart
-else # Windows, to be fixed!
-	$(MAKE) runtime
-endif
 	$(MAKE) coreall
 
 # Save the current bootstrap compiler
@@ -416,7 +417,7 @@ backup:
 	mkdir boot/Saved
 	mv boot/Saved.prev boot/Saved/Saved.prev
 	cp boot/ocamlrun$(EXE) boot/Saved
-	cd boot; mv ocamlc ocamllex ocamlyacc$(EXE) ocamldep Saved
+	cd boot; mv ocamlc ocamllex ocamlyacc$(EXE) Saved
 	cd boot; cp $(LIBFILES) Saved
 
 # Restore the saved bootstrap compiler if a problem arises
@@ -428,8 +429,7 @@ restore:
 .PHONY: compare
 compare:
 	@if $(CAMLRUN) tools/cmpbyt boot/ocamlc ocamlc \
-         && $(CAMLRUN) tools/cmpbyt boot/ocamllex lex/ocamllex \
-         && $(CAMLRUN) tools/cmpbyt boot/ocamldep tools/ocamldep; \
+         && $(CAMLRUN) tools/cmpbyt boot/ocamllex lex/ocamllex; \
 	then echo "Fixpoint reached, bootstrap succeeded."; \
 	else echo "Fixpoint not reached, try one more bootstrapping cycle."; \
 	fi
@@ -441,7 +441,6 @@ promote-cross:
 	$(CAMLRUN) tools/stripdebug ocamlc boot/ocamlc
 	$(CAMLRUN) tools/stripdebug lex/ocamllex boot/ocamllex
 	cp yacc/ocamlyacc$(EXE) boot/ocamlyacc$(EXE)
-	$(CAMLRUN) tools/stripdebug tools/ocamldep boot/ocamldep
 	cd stdlib; cp $(LIBFILES) ../boot
 
 # Promote the newly compiled system to the rank of bootstrap compiler
@@ -463,19 +462,13 @@ opt-core: runtimeopt
 
 .PHONY: opt
 opt:
-ifeq "$(UNIX_OR_WIN32)" "unix"
 	$(MAKE) runtimeopt
 	$(MAKE) ocamlopt
 	$(MAKE) libraryopt
 	$(MAKE) otherlibrariesopt ocamltoolsopt
-else
-	$(MAKE) opt-core
-	$(MAKE) otherlibrariesopt ocamltoolsopt
-endif
 
 # Native-code versions of the tools
 .PHONY: opt.opt
-ifeq "$(UNIX_OR_WIN32)" "unix"
 opt.opt:
 	$(MAKE) checkstack
 	$(MAKE) runtime
@@ -488,23 +481,6 @@ opt.opt:
 	$(MAKE) otherlibrariesopt
 	$(MAKE) ocamllex.opt ocamltoolsopt ocamltoolsopt.opt $(OCAMLDOC_OPT) \
 	  ocamltest.opt
-else
-opt.opt: core opt-core ocamlc.opt all ocamlopt.opt ocamllex.opt \
-         ocamltoolsopt ocamltoolsopt.opt otherlibrariesopt $(OCAMLDOC_OPT) \
-         ocamltest.opt
-endif
-
-.PHONY: base.opt
-base.opt:
-	$(MAKE) checkstack
-	$(MAKE) runtime
-	$(MAKE) core
-	$(MAKE) ocaml
-	$(MAKE) opt-core
-	$(MAKE) ocamlc.opt
-	$(MAKE) otherlibraries $(WITH_DEBUGGER) $(WITH_OCAMLDOC) ocamltest
-	$(MAKE) ocamlopt.opt
-	$(MAKE) otherlibrariesopt
 
 # Core bootstrapping cycle
 .PHONY: coreboot
@@ -603,17 +579,20 @@ flexlink.opt:
 	mv flexlink.exe flexlink.opt && \
 	mv flexlink flexlink.exe
 
+INSTALL_COMPLIBDIR=$(DESTDIR)$(COMPLIBDIR)
+INSTALL_FLEXDLLDIR=$(INSTALL_LIBDIR)/flexdll
+
 .PHONY: install-flexdll
 install-flexdll:
 	cat stdlib/camlheader flexdll/flexlink.exe > \
 	  "$(INSTALL_BINDIR)/flexlink.exe"
 ifneq "$(filter-out mingw,$(TOOLCHAIN))" ""
-	cp flexdll/default$(filter-out _i386,_$(ARCH)).manifest \
+	$(INSTALL_DATA) flexdll/default$(filter-out _i386,_$(ARCH)).manifest \
     "$(INSTALL_BINDIR)/"
 endif
 	if test -n "$(wildcard flexdll/flexdll_*.$(O))" ; then \
-	  $(MKDIR) "$(INSTALL_FLEXDLL)" ; \
-	  cp flexdll/flexdll_*.$(O) "$(INSTALL_FLEXDLL)" ; \
+	  $(MKDIR) "$(INSTALL_FLEXDLLDIR)" ; \
+	  $(INSTALL_DATA) flexdll/flexdll_*.$(O) "$(INSTALL_FLEXDLLDIR)" ; \
 	fi
 
 # Installation
@@ -623,26 +602,33 @@ install:
 	$(MKDIR) "$(INSTALL_LIBDIR)"
 	$(MKDIR) "$(INSTALL_STUBLIBDIR)"
 	$(MKDIR) "$(INSTALL_COMPLIBDIR)"
-	cp VERSION "$(INSTALL_LIBDIR)"
+	$(INSTALL_DATA) \
+	  VERSION \
+	  "$(INSTALL_LIBDIR)"
 	$(MAKE) -C byterun install
-	cp ocaml "$(INSTALL_BINDIR)/ocaml$(EXE)"
-	cp ocamlc "$(INSTALL_BINDIR)/ocamlc.byte$(EXE)"
+	$(INSTALL_PROG) ocaml "$(INSTALL_BINDIR)/ocaml$(EXE)"
+	$(INSTALL_PROG) ocamlc "$(INSTALL_BINDIR)/ocamlc.byte$(EXE)"
 	$(MAKE) -C stdlib install
-	cp lex/ocamllex "$(INSTALL_BINDIR)/ocamllex.byte$(EXE)"
-	cp yacc/ocamlyacc$(EXE) "$(INSTALL_BINDIR)/ocamlyacc$(EXE)"
-	cp utils/*.cmi utils/*.cmt utils/*.cmti utils/*.mli \
+	$(INSTALL_PROG) lex/ocamllex "$(INSTALL_BINDIR)/ocamllex.byte$(EXE)"
+	$(INSTALL_PROG) yacc/ocamlyacc$(EXE) "$(INSTALL_BINDIR)/ocamlyacc$(EXE)"
+	$(INSTALL_DATA) \
+	   utils/*.cmi utils/*.cmt utils/*.cmti utils/*.mli \
 	   parsing/*.cmi parsing/*.cmt parsing/*.cmti parsing/*.mli \
 	   typing/*.cmi typing/*.cmt typing/*.cmti typing/*.mli \
 	   bytecomp/*.cmi bytecomp/*.cmt bytecomp/*.cmti bytecomp/*.mli \
 	   driver/*.cmi driver/*.cmt driver/*.cmti driver/*.mli \
 	   toplevel/*.cmi toplevel/*.cmt toplevel/*.cmti toplevel/*.mli \
 	   "$(INSTALL_COMPLIBDIR)"
-	cp compilerlibs/ocamlcommon.cma compilerlibs/ocamlbytecomp.cma \
+	$(INSTALL_DATA) \
+	   compilerlibs/ocamlcommon.cma compilerlibs/ocamlbytecomp.cma \
 	   compilerlibs/ocamltoplevel.cma $(BYTESTART) $(TOPLEVELSTART) \
 	   "$(INSTALL_COMPLIBDIR)"
-	cp expunge "$(INSTALL_LIBDIR)/expunge$(EXE)"
-	cp toplevel/topdirs.cmi toplevel/topdirs.cmt toplevel/topdirs.cmti \
-           toplevel/topdirs.mli "$(INSTALL_LIBDIR)"
+	$(INSTALL_PROG) expunge "$(INSTALL_LIBDIR)/expunge$(EXE)"
+	$(INSTALL_DATA) \
+	   toplevel/topdirs.cmi \
+	   toplevel/topdirs.cmt toplevel/topdirs.cmti \
+           toplevel/topdirs.mli \
+	   "$(INSTALL_LIBDIR)"
 	$(MAKE) -C tools install
 ifeq "$(UNIX_OR_WIN32)" "unix" # Install manual pages only on Unix
 	$(MKDIR) "$(INSTALL_MANDIR)/man$(PROGRAMS_MAN_SECTION)"
@@ -666,7 +652,7 @@ ifeq "$(UNIX_OR_WIN32)" "win32"
 	  $(MAKE) install-flexdll; \
 	fi
 endif
-	cp config/Makefile "$(INSTALL_LIBDIR)/Makefile.config"
+	$(INSTALL_DATA) config/Makefile "$(INSTALL_LIBDIR)/Makefile.config"
 	if test -f ocamlopt; then $(MAKE) installopt; else \
 	   cd "$(INSTALL_BINDIR)"; \
 	   $(LN) ocamlc.byte$(EXE) ocamlc$(EXE); \
@@ -677,17 +663,26 @@ endif
 .PHONY: installopt
 installopt:
 	$(MAKE) -C asmrun install
-	cp ocamlopt "$(INSTALL_BINDIR)/ocamlopt.byte$(EXE)"
+	$(INSTALL_PROG) ocamlopt "$(INSTALL_BINDIR)/ocamlopt.byte$(EXE)"
 	$(MAKE) -C stdlib installopt
-	cp middle_end/*.cmi middle_end/*.cmt middle_end/*.cmti \
+	$(INSTALL_DATA) \
+	    middle_end/*.cmi \
+	    middle_end/*.cmt middle_end/*.cmti \
 	    middle_end/*.mli \
-		"$(INSTALL_COMPLIBDIR)"
-	cp middle_end/base_types/*.cmi middle_end/base_types/*.cmt \
-	    middle_end/base_types/*.cmti middle_end/base_types/*.mli \
-		"$(INSTALL_COMPLIBDIR)"
-	cp asmcomp/*.cmi asmcomp/*.cmt asmcomp/*.cmti asmcomp/*.mli \
-		"$(INSTALL_COMPLIBDIR)"
-	cp compilerlibs/ocamloptcomp.cma $(OPTSTART) "$(INSTALL_COMPLIBDIR)"
+	    "$(INSTALL_COMPLIBDIR)"
+	$(INSTALL_DATA) \
+	    middle_end/base_types/*.cmi \
+	    middle_end/base_types/*.cmt middle_end/base_types/*.cmti \
+	    middle_end/base_types/*.mli \
+	    "$(INSTALL_COMPLIBDIR)"
+	$(INSTALL_DATA) \
+	    asmcomp/*.cmi \
+	    asmcomp/*.cmt asmcomp/*.cmti \
+	    asmcomp/*.mli \
+	    "$(INSTALL_COMPLIBDIR)"
+	$(INSTALL_DATA) \
+	    compilerlibs/ocamloptcomp.cma $(OPTSTART) \
+	    "$(INSTALL_COMPLIBDIR)"
 	if test -n "$(WITH_OCAMLDOC)"; then \
 	  $(MAKE) -C ocamldoc installopt; \
 	fi
@@ -702,30 +697,39 @@ installopt:
 	fi
 	$(MAKE) -C tools installopt
 	if test -f ocamlopt.opt -a -f flexdll/flexlink.opt ; then \
-	  cp -f flexdll/flexlink.opt "$(INSTALL_BINDIR)/flexlink$(EXE)" ; \
+	  $(INSTALL_PROG) \
+	    flexdll/flexlink.opt "$(INSTALL_BINDIR)/flexlink$(EXE)" ; \
 	fi
 
 .PHONY: installoptopt
 installoptopt:
-	cp ocamlc.opt "$(INSTALL_BINDIR)/ocamlc.opt$(EXE)"
-	cp ocamlopt.opt "$(INSTALL_BINDIR)/ocamlopt.opt$(EXE)"
-	cp lex/ocamllex.opt "$(INSTALL_BINDIR)/ocamllex.opt$(EXE)"
+	$(INSTALL_PROG) ocamlc.opt "$(INSTALL_BINDIR)/ocamlc.opt$(EXE)"
+	$(INSTALL_PROG) ocamlopt.opt "$(INSTALL_BINDIR)/ocamlopt.opt$(EXE)"
+	$(INSTALL_PROG) \
+	  lex/ocamllex.opt "$(INSTALL_BINDIR)/ocamllex.opt$(EXE)"
 	cd "$(INSTALL_BINDIR)"; \
 	   $(LN) ocamlc.opt$(EXE) ocamlc$(EXE); \
 	   $(LN) ocamlopt.opt$(EXE) ocamlopt$(EXE); \
 	   $(LN) ocamllex.opt$(EXE) ocamllex$(EXE)
-	cp utils/*.cmx parsing/*.cmx typing/*.cmx bytecomp/*.cmx \
-	   driver/*.cmx asmcomp/*.cmx "$(INSTALL_COMPLIBDIR)"
-	cp compilerlibs/ocamlcommon.cmxa compilerlibs/ocamlcommon.$(A) \
+	$(INSTALL_DATA) \
+	   utils/*.cmx parsing/*.cmx typing/*.cmx bytecomp/*.cmx \
+	   driver/*.cmx asmcomp/*.cmx \
+	  "$(INSTALL_COMPLIBDIR)"
+	$(INSTALL_DATA) \
+           compilerlibs/ocamlcommon.cmxa compilerlibs/ocamlcommon.$(A) \
 	   compilerlibs/ocamlbytecomp.cmxa compilerlibs/ocamlbytecomp.$(A) \
-	   compilerlibs/ocamloptcomp.cmxa compilerlibs/ocamloptcomp.$(A) \
+	   compilerlibs/ocamloptcomp.cmxa  compilerlibs/ocamloptcomp.$(A) \
 	   $(BYTESTART:.cmo=.cmx) $(BYTESTART:.cmo=.$(O)) \
 	   $(OPTSTART:.cmo=.cmx) $(OPTSTART:.cmo=.$(O)) \
 	   "$(INSTALL_COMPLIBDIR)"
 	if test -f ocamlnat$(EXE) ; then \
-	  cp ocamlnat$(EXE) "$(INSTALL_BINDIR)/ocamlnat$(EXE)"; \
-	  cp toplevel/opttopdirs.cmi "$(INSTALL_LIBDIR)"; \
-	  cp compilerlibs/ocamlopttoplevel.cmxa \
+	  $(INSTALL_PROG) \
+	    ocamlnat$(EXE) "$(INSTALL_BINDIR)/ocamlnat$(EXE)"; \
+	  $(INSTALL_DATA) \
+	     toplevel/opttopdirs.cmi \
+	     "$(INSTALL_LIBDIR)"; \
+	  $(INSTALL_DATA) \
+	     compilerlibs/ocamlopttoplevel.cmxa \
 	     compilerlibs/ocamlopttoplevel.$(A) \
 	     $(OPTTOPLEVELSTART:.cmo=.cmx) $(OPTTOPLEVELSTART:.cmo=.$(O)) \
 	     "$(INSTALL_COMPLIBDIR)"; \
@@ -736,9 +740,11 @@ installoptopt:
 # Installation of the *.ml sources of compiler-libs
 .PHONY: install-compiler-sources
 install-compiler-sources:
-	cp utils/*.ml parsing/*.ml typing/*.ml bytecomp/*.ml driver/*.ml \
+	$(INSTALL_DATA) \
+	   utils/*.ml parsing/*.ml typing/*.ml bytecomp/*.ml driver/*.ml \
 	   toplevel/*.ml middle_end/*.ml middle_end/base_types/*.ml \
-	   asmcomp/*.ml $(INSTALL_COMPLIBDIR)
+	   asmcomp/*.ml \
+	   "$(INSTALL_COMPLIBDIR)"
 
 # Run all tests
 
@@ -820,22 +826,17 @@ partialclean::
 
 .PHONY: runtop
 runtop:
-ifeq "$(UNIX_OR_WIN32)" "unix"
-	$(MAKE) runtime
-	$(MAKE) coreall
+	$(MAKE) coldstart
+	$(MAKE) ocamlc
+	$(MAKE) otherlibraries
 	$(MAKE) ocaml
-else
-	$(MAKE) core
-	$(MAKE) ocaml
-endif
 	@rlwrap --help 2>/dev/null && $(EXTRAPATH) rlwrap $(RUNTOP) ||\
 	  $(EXTRAPATH) $(RUNTOP)
 
 .PHONY: natruntop
 natruntop:
-	$(MAKE) runtime
-	$(MAKE) coreall
-	$(MAKE) opt.opt
+	$(MAKE) core
+	$(MAKE) opt
 	$(MAKE) ocamlnat
 	@rlwrap --help 2>/dev/null && $(EXTRAPATH) rlwrap $(NATRUNTOP) ||\
 	  $(EXTRAPATH) $(NATRUNTOP)
@@ -984,7 +985,8 @@ clean::
 otherlibs_all := bigarray dynlink graph raw_spacetime_lib \
   str systhreads threads unix win32graph win32unix
 subdirs := asmrun byterun debugger lex ocamldoc ocamltest stdlib tools \
-  $(addprefix otherlibs/, $(otherlibs_all))
+  $(addprefix otherlibs/, $(otherlibs_all)) \
+  ocamldoc/stdlib_non_prefixed
 
 .PHONY: alldepend
 ifeq "$(TOOLCHAIN)" "msvc"
@@ -1112,15 +1114,16 @@ ocamldebugger: ocamlc ocamlyacc ocamllex otherlibraries
 partialclean::
 	$(MAKE) -C debugger clean
 
-# Check that the stack limit is reasonable.
-ifeq "$(UNIX_OR_WIN32)" "unix"
+# Check that the stack limit is reasonable (Unix-only)
 .PHONY: checkstack
 checkstack:
+ifeq "$(UNIX_OR_WIN32)" "unix"
 	if $(MKEXE) $(OUTPUTEXE)tools/checkstack$(EXE) tools/checkstack.c; \
 	  then tools/checkstack$(EXE); \
-	  else :; \
 	fi
 	rm -f tools/checkstack$(EXE)
+else
+	@
 endif
 
 # Lint @since and @deprecated annotations
@@ -1137,19 +1140,6 @@ lintapidiff:
 
 clean::
 	cd testsuite; $(MAKE) clean
-
-# Make MacOS X package
-ifeq "$(UNIX_OR_WIN32)" "unix"
-.PHONY: package-macosx
-package-macosx:
-	sudo rm -rf package-macosx/root
-	$(MAKE) PREFIX="`pwd`"/package-macosx/root install
-	tools/make-package-macosx
-	sudo rm -rf package-macosx/root
-
-clean::
-	rm -rf package-macosx/*.pkg package-macosx/*.dmg
-endif
 
 # The middle end (whose .cma library is currently only used for linking
 # the "ocamlobjinfo" program, since we cannot depend on the whole native code
@@ -1206,11 +1196,15 @@ check_arch:
 
 .PHONY: check_all_arches
 check_all_arches:
+ifneq ($(shell grep -E '^\#define ARCH_SIXTYFOUR$$' byterun/caml/m.h 2> /dev/null),)
 	@STATUS=0; \
 	 for i in $(ARCHES); do \
 	   $(MAKE) --no-print-directory check_arch ARCH=$$i || STATUS=1; \
 	 done; \
 	 exit $$STATUS
+else
+	 @echo "Architecture tests are disabled on 32-bit platforms."
+endif
 
 # Compiler Plugins
 
@@ -1322,6 +1316,6 @@ distclean: clean
 	rm -f config/Makefile byterun/caml/m.h byterun/caml/s.h
 	rm -f tools/*.bak
 	rm -f ocaml ocamlc
-	rm -f testsuite/_log
+	rm -f testsuite/_log*
 
 include .depend

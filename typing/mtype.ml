@@ -107,6 +107,43 @@ and strengthen_decl ~aliasable env md p =
 
 let () = Env.strengthen := strengthen
 
+let rec make_aliases_absent mty =
+  match mty with
+  | Mty_alias(_, p) ->
+      Mty_alias(Mta_absent, p)
+  | Mty_signature sg ->
+      Mty_signature(make_aliases_absent_sig sg)
+  | Mty_functor(param, arg, res) ->
+      Mty_functor(param, arg, make_aliases_absent res)
+  | mty ->
+      mty
+
+and make_aliases_absent_sig sg =
+  match sg with
+    [] -> []
+  | Sig_module(id, md, rs) :: rem ->
+      let str =
+        { md with md_type = make_aliases_absent md.md_type }
+      in
+      Sig_module(id, str, rs) :: make_aliases_absent_sig rem
+  | sigelt :: rem ->
+      sigelt :: make_aliases_absent_sig rem
+
+let scrape_for_type_of env mty =
+  let rec loop env path mty =
+    match mty, path with
+    | Mty_alias(_, path), _ -> begin
+        try
+          let md = Env.find_module path env in
+          loop env (Some path) md.md_type
+        with Not_found -> mty
+      end
+    | mty, Some path ->
+        strengthen ~aliasable:false env mty path
+    | _ -> mty
+  in
+  make_aliases_absent (loop env None mty)
+
 (* In nondep_supertype, env is only used for the type it assigns to id.
    Hence there is no need to keep env up-to-date by adding the bindings
    traversed. *)
@@ -175,17 +212,36 @@ let nondep_supertype env mid mty =
   in
     nondep_mty env Co mty
 
-let enrich_typedecl env p decl =
+let enrich_typedecl env p id decl =
   match decl.type_manifest with
     Some _ -> decl
   | None ->
       try
         let orig_decl = Env.find_type p env in
-        if orig_decl.type_arity <> decl.type_arity
-        then decl
-        else {decl with type_manifest =
-                Some(Btype.newgenty(Tconstr(p, decl.type_params, ref Mnil)))}
-      with Not_found ->
+        if decl.type_arity <> orig_decl.type_arity then
+          decl
+        else
+          let orig_ty =
+            Ctype.reify_univars
+              (Btype.newgenty(Tconstr(p, orig_decl.type_params, ref Mnil)))
+          in
+          let new_ty =
+            Ctype.reify_univars
+              (Btype.newgenty(Tconstr(Pident id, decl.type_params, ref Mnil)))
+          in
+          let env = Env.add_type ~check:false id decl env in
+          Ctype.mcomp env orig_ty new_ty;
+          let orig_ty =
+            Btype.newgenty(Tconstr(p, decl.type_params, ref Mnil))
+          in
+          {decl with type_manifest = Some orig_ty}
+      with Not_found | Ctype.Unify _ ->
+        (* - Not_found: type which was not present in the signature, so we don't
+           have anything to do.
+           - Unify: the current declaration is not compatible with the one we
+           got from the signature. We should just fail now, but then, we could
+           also have failed if the arities of the two decls were different,
+           which we didn't. *)
         decl
 
 let rec enrich_modtype env p mty =
@@ -198,7 +254,7 @@ let rec enrich_modtype env p mty =
 and enrich_item env p = function
     Sig_type(id, decl, rs) ->
       Sig_type(id,
-                enrich_typedecl env (Pdot(p, Ident.name id, nopos)) decl, rs)
+                enrich_typedecl env (Pdot(p, Ident.name id, nopos)) id decl, rs)
   | Sig_module(id, md, rs) ->
       Sig_module(id,
                   {md with
@@ -305,7 +361,6 @@ let contains_type env mty =
 
 module PathSet = Set.Make (Path)
 module PathMap = Map.Make (Path)
-module IdentSet = Set.Make (Ident)
 
 let rec get_prefixes = function
     Pident _ -> PathSet.empty
@@ -334,10 +389,10 @@ let rec collect_ids subst bindings p =
       Pident id ->
         let ids =
           try collect_ids subst bindings (Ident.find_same id bindings)
-          with Not_found -> IdentSet.empty
+          with Not_found -> Ident.Set.empty
         in
-        IdentSet.add id ids
-    | _ -> IdentSet.empty
+        Ident.Set.add id ids
+    | _ -> Ident.Set.empty
     end
 
 let collect_arg_paths mty =
@@ -365,45 +420,63 @@ let collect_arg_paths mty =
   let it = {type_iterators with it_path; it_signature_item} in
   it.it_module_type it mty;
   it.it_module_type unmark_iterators mty;
-  PathSet.fold (fun p -> IdentSet.union (collect_ids !subst !bindings p))
-    !paths IdentSet.empty
+  PathSet.fold (fun p -> Ident.Set.union (collect_ids !subst !bindings p))
+    !paths Ident.Set.empty
 
-let rec remove_aliases env excl mty =
-  match mty with
-    Mty_signature sg ->
-      Mty_signature (remove_aliases_sig env excl sg)
-  | Mty_alias _ ->
-      let mty' = Env.scrape_alias env mty in
-      if mty' = mty then mty else
-      remove_aliases env excl mty'
-  | mty ->
-      mty
+type remove_alias_args =
+    { mutable modified: bool;
+      exclude: Ident.t -> Path.t -> bool;
+      scrape: Env.t -> module_type -> module_type }
 
-and remove_aliases_sig env excl sg =
+let rec remove_aliases_mty env args mty =
+  let args' = {args with modified = false} in
+  let mty' =
+    match args.scrape env mty with
+      Mty_signature sg ->
+        Mty_signature (remove_aliases_sig env args' sg)
+    | Mty_alias _ ->
+        let mty' = Env.scrape_alias env mty in
+        if mty' = mty then mty else
+        (args'.modified <- true; remove_aliases_mty env args' mty')
+    | mty ->
+        mty
+  in
+  if args'.modified then (args.modified <- true; mty') else mty
+
+and remove_aliases_sig env args sg =
   match sg with
     [] -> []
   | Sig_module(id, md, rs) :: rem  ->
       let mty =
         match md.md_type with
-          Mty_alias _ when IdentSet.mem id excl ->
+          Mty_alias (_, p) when args.exclude id p ->
             md.md_type
         | mty ->
-            remove_aliases env excl mty
+            remove_aliases_mty env args mty
       in
       Sig_module(id, {md with md_type = mty} , rs) ::
-      remove_aliases_sig (Env.add_module id mty env) excl rem
+      remove_aliases_sig (Env.add_module id mty env) args rem
   | Sig_modtype(id, mtd) :: rem ->
       Sig_modtype(id, mtd) ::
-      remove_aliases_sig (Env.add_modtype id mtd env) excl rem
+      remove_aliases_sig (Env.add_modtype id mtd env) args rem
   | it :: rem ->
-      it :: remove_aliases_sig env excl rem
+      it :: remove_aliases_sig env args rem
 
-let remove_aliases env sg =
-  let excl = collect_arg_paths sg in
-  (* PathSet.iter (fun p -> Format.eprintf "%a@ " Printtyp.path p) excl;
-  Format.eprintf "@."; *)
-  remove_aliases env excl sg
+let scrape_for_functor_arg env mty =
+  let exclude _id p =
+    try ignore (Env.find_module p env); true with Not_found -> false
+  in
+  remove_aliases_mty env {modified=false; exclude; scrape} mty
 
+let scrape_for_type_of ~remove_aliases env mty =
+  if remove_aliases then begin
+    let excl = collect_arg_paths mty in
+    let exclude id _p = Ident.Set.mem id excl in
+    let scrape _ mty = mty in
+    remove_aliases_mty env {modified=false; exclude; scrape} mty
+  end else begin
+    scrape_for_type_of env mty
+  end
 
 (* Lower non-generalizable type variables *)
 

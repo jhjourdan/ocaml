@@ -161,7 +161,7 @@ type summary =
   | Env_modtype of summary * Ident.t * modtype_declaration
   | Env_class of summary * Ident.t * class_declaration
   | Env_cltype of summary * Ident.t * class_type_declaration
-  | Env_open of summary * Path.t
+  | Env_open of summary * StringSet.t * Path.t
   | Env_functor_arg of summary * Ident.t
   | Env_constraints of summary * type_declaration PathMap.t
   | Env_copy_types of summary * string list
@@ -333,7 +333,7 @@ module IdTbl =
         | None -> raise exn
         end
 
-    let rec find_name mark name tbl =
+    let rec find_name ~mark name tbl =
       try
         let (id, desc) = Ident.find_name name tbl.current in
         Pident id, desc
@@ -346,19 +346,17 @@ module IdTbl =
               if mark then begin match using with
               | None -> ()
               | Some f ->
-                  begin try f name (Some (snd (find_name false name next), snd res))
+                  begin try f name (Some (snd (find_name ~mark:false name next), snd res))
                   with Not_found -> f name None
                   end
               end;
               res
             with Not_found ->
-              find_name mark name next
+              find_name ~mark name next
             end
         | None ->
             raise exn
         end
-
-    let find_name name tbl = find_name true name tbl
 
     let rec update name f tbl =
       try
@@ -438,7 +436,6 @@ type type_descriptions =
     constructor_description list * label_description list
 
 let in_signature_flag = 0x01
-let implicit_coercion_flag = 0x02
 
 type t = {
   values: value_description IdTbl.t;
@@ -453,7 +450,6 @@ type t = {
   functor_args: unit Ident.tbl;
   summary: summary;
   local_constraints: type_declaration PathMap.t;
-  gadt_instances: (int * TypeSet.t ref) list;
   flags: int;
 }
 
@@ -496,7 +492,6 @@ and functor_components = {
 let copy_local ~from env =
   { env with
     local_constraints = from.local_constraints;
-    gadt_instances = from.gadt_instances;
     flags = from.flags }
 
 let same_constr = ref (fun _ _ _ -> assert false)
@@ -536,7 +531,7 @@ let empty = {
   modules = IdTbl.empty; modtypes = IdTbl.empty;
   components = IdTbl.empty; classes = IdTbl.empty;
   cltypes = IdTbl.empty;
-  summary = Env_empty; local_constraints = PathMap.empty; gadt_instances = [];
+  summary = Env_empty; local_constraints = PathMap.empty;
   flags = 0;
   functor_args = Ident.empty;
  }
@@ -548,11 +543,7 @@ let in_signature b env =
   in
   {env with flags}
 
-let implicit_coercion env =
-  {env with flags = env.flags lor implicit_coercion_flag}
-
 let is_in_signature env = env.flags land in_signature_flag <> 0
-let is_implicit_coercion env = env.flags land implicit_coercion_flag <> 0
 
 let is_ident = function
     Pident _ -> true
@@ -652,9 +643,6 @@ let persistent_structures =
 (* Consistency between persistent structures *)
 
 let crc_units = Consistbl.create()
-
-module StringSet =
-  Set.Make(struct type t = string let compare = String.compare end)
 
 let imported_units = ref StringSet.empty
 
@@ -1107,23 +1095,22 @@ let report_deprecated ?loc p deprecated =
       Location.deprecated loc (Printf.sprintf "module %s%s" (Path.name p) txt)
   | _ -> ()
 
-let mark_module_used env name loc =
-  if not (is_implicit_coercion env) then
-    try Hashtbl.find module_declarations (name, loc) ()
-    with Not_found -> ()
+let mark_module_used name loc =
+  try Hashtbl.find module_declarations (name, loc) ()
+  with Not_found -> ()
 
-let rec lookup_module_descr_aux ?loc lid env =
+let rec lookup_module_descr_aux ?loc ~mark lid env =
   match lid with
     Lident s ->
       begin try
-        IdTbl.find_name s env.components
+        IdTbl.find_name ~mark s env.components
       with Not_found ->
         if s = !current_unit then raise Not_found;
         let ps = find_pers_struct s in
         (Pident(Ident.create_persistent s), ps.ps_comps)
       end
   | Ldot(l, s) ->
-      let (p, descr) = lookup_module_descr ?loc l env in
+      let (p, descr) = lookup_module_descr ?loc ~mark l env in
       begin match get_components descr with
         Structure_comps c ->
           let (descr, pos) = Tbl.find_str s c.comp_components in
@@ -1132,21 +1119,23 @@ let rec lookup_module_descr_aux ?loc lid env =
           raise Not_found
       end
   | Lapply(l1, l2) ->
-      let (p1, desc1) = lookup_module_descr ?loc l1 env in
-      let p2 = lookup_module ~load:true ?loc l2 env in
+      let (p1, desc1) = lookup_module_descr ?loc ~mark l1 env in
+      let p2 = lookup_module ~load:true ~mark ?loc l2 env in
       let {md_type=mty2} = find_module p2 env in
       begin match get_components desc1 with
         Functor_comps f ->
           let loc = match loc with Some l -> l | None -> Location.none in
-          Misc.may (!check_modtype_inclusion ~loc env mty2 p2) f.fcomp_arg;
+          (match f.fcomp_arg with
+          | None ->  raise Not_found (* PR#7611 *)
+          | Some arg -> !check_modtype_inclusion ~loc env mty2 p2 arg);
           (Papply(p1, p2), !components_of_functor_appl' f env p1 p2)
       | Structure_comps _ ->
           raise Not_found
       end
 
-and lookup_module_descr ?loc lid env =
-  let (p, comps) as res = lookup_module_descr_aux ?loc lid env in
-  mark_module_used env (Path.last p) comps.loc;
+and lookup_module_descr ?loc ~mark lid env =
+  let (p, comps) as res = lookup_module_descr_aux ?loc ~mark lid env in
+  if mark then mark_module_used (Path.last p) comps.loc;
 (*
   Format.printf "USE module %s at %a@." (Path.last p)
     Location.print comps.loc;
@@ -1154,15 +1143,15 @@ and lookup_module_descr ?loc lid env =
   report_deprecated ?loc p comps.deprecated;
   res
 
-and lookup_module ~load ?loc lid env : Path.t =
+and lookup_module ~load ?loc ~mark lid env : Path.t =
   match lid with
     Lident s ->
       begin try
-        let (p, data) = IdTbl.find_name s env.modules in
+        let (p, data) = IdTbl.find_name ~mark s env.modules in
         let {md_loc; md_attributes; md_type} =
           EnvLazy.force subst_modtype_maker data
         in
-        mark_module_used env s md_loc;
+        if mark then mark_module_used s md_loc;
         begin match md_type with
         | Mty_ident (Path.Pident id) when Ident.name id = "#recmod#" ->
           (* see #5965 *)
@@ -1186,12 +1175,12 @@ and lookup_module ~load ?loc lid env : Path.t =
         p
       end
   | Ldot(l, s) ->
-      let (p, descr) = lookup_module_descr ?loc l env in
+      let (p, descr) = lookup_module_descr ?loc ~mark l env in
       begin match get_components descr with
         Structure_comps c ->
           let (_data, pos) = Tbl.find_str s c.comp_modules in
           let (comps, _) = Tbl.find_str s c.comp_components in
-          mark_module_used env s comps.loc;
+          if mark then mark_module_used s comps.loc;
           let p = Pdot(p, s, pos) in
           report_deprecated ?loc p comps.deprecated;
           p
@@ -1199,25 +1188,27 @@ and lookup_module ~load ?loc lid env : Path.t =
           raise Not_found
       end
   | Lapply(l1, l2) ->
-      let (p1, desc1) = lookup_module_descr ?loc l1 env in
-      let p2 = lookup_module ~load:true ?loc l2 env in
+      let (p1, desc1) = lookup_module_descr ?loc ~mark l1 env in
+      let p2 = lookup_module ~load:true ?loc ~mark l2 env in
       let {md_type=mty2} = find_module p2 env in
       let p = Papply(p1, p2) in
       begin match get_components desc1 with
         Functor_comps f ->
           let loc = match loc with Some l -> l | None -> Location.none in
-          Misc.may (!check_modtype_inclusion ~loc env mty2 p2) f.fcomp_arg;
+          (match f.fcomp_arg with
+          | None -> raise Not_found (* PR#7611 *)
+          | Some arg -> (!check_modtype_inclusion ~loc env mty2 p2) arg);
           p
       | Structure_comps _ ->
           raise Not_found
       end
 
-let lookup proj1 proj2 ?loc lid env =
+let lookup proj1 proj2 ?loc ~mark lid env =
   match lid with
     Lident s ->
-      IdTbl.find_name s (proj1 env)
+      IdTbl.find_name ~mark s (proj1 env)
   | Ldot(l, s) ->
-      let (p, desc) = lookup_module_descr ?loc l env in
+      let (p, desc) = lookup_module_descr ?loc ~mark l env in
       begin match get_components desc with
         Structure_comps c ->
           let (data, pos) = Tbl.find_str s (proj2 c) in
@@ -1228,7 +1219,7 @@ let lookup proj1 proj2 ?loc lid env =
   | Lapply _ ->
       raise Not_found
 
-let lookup_all_simple proj1 proj2 shadow ?loc lid env =
+let lookup_all_simple proj1 proj2 shadow ?loc ~mark lid env =
   match lid with
     Lident s ->
       let xl = TycompTbl.find_all s (proj1 env) in
@@ -1241,7 +1232,7 @@ let lookup_all_simple proj1 proj2 shadow ?loc lid env =
       in
         do_shadow xl
   | Ldot(l, s) ->
-      let (_p, desc) = lookup_module_descr ?loc l env in
+      let (_p, desc) = lookup_module_descr ?loc ~mark l env in
       begin match get_components desc with
         Structure_comps c ->
           let comps =
@@ -1287,26 +1278,22 @@ let copy_types l env =
   let values = List.fold_left (fun env s -> IdTbl.update s f env) env.values l in
   {env with values; summary = Env_copy_types (env.summary, l)}
 
-let mark_value_used env name vd =
-  if not (is_implicit_coercion env) then
-    try Hashtbl.find value_declarations (name, vd.val_loc) ()
-    with Not_found -> ()
+let mark_value_used name vd =
+  try Hashtbl.find value_declarations (name, vd.val_loc) ()
+  with Not_found -> ()
 
-let mark_type_used env name vd =
-  if not (is_implicit_coercion env) then
-    try Hashtbl.find type_declarations (name, vd.type_loc) ()
-    with Not_found -> ()
+let mark_type_used name vd =
+  try Hashtbl.find type_declarations (name, vd.type_loc) ()
+  with Not_found -> ()
 
-let mark_constructor_used usage env name vd constr =
-  if not (is_implicit_coercion env) then
-    try Hashtbl.find used_constructors (name, vd.type_loc, constr) usage
-    with Not_found -> ()
+let mark_constructor_used usage name vd constr =
+  try Hashtbl.find used_constructors (name, vd.type_loc, constr) usage
+  with Not_found -> ()
 
-let mark_extension_used usage env ext name =
-  if not (is_implicit_coercion env) then
-    let ty_name = Path.last ext.ext_type_path in
-    try Hashtbl.find used_constructors (ty_name, ext.ext_loc, name) usage
-    with Not_found -> ()
+let mark_extension_used usage ext name =
+  let ty_name = Path.last ext.ext_type_path in
+  try Hashtbl.find used_constructors (ty_name, ext.ext_loc, name) usage
+  with Not_found -> ()
 
 let set_value_used_callback name vd callback =
   let key = (name, vd.val_loc) in
@@ -1330,20 +1317,20 @@ let set_type_used_callback name td callback =
   in
   Hashtbl.replace type_declarations key (fun () -> callback old)
 
-let lookup_value ?loc lid env =
-  let (_, desc) as r = lookup_value ?loc lid env in
-  mark_value_used env (Longident.last lid) desc;
+let lookup_value ?loc ?(mark = true) lid env =
+  let (_, desc) as r = lookup_value ?loc ~mark lid env in
+  if mark then mark_value_used (Longident.last lid) desc;
   r
 
-let lookup_type ?loc lid env =
-  let (path, (decl, _)) = lookup_type ?loc lid env in
-  mark_type_used env (Longident.last lid) decl;
+let lookup_type ?loc ?(mark = true) lid env =
+  let (path, (decl, _)) = lookup_type ?loc ~mark lid env in
+  if mark then mark_type_used (Longident.last lid) decl;
   path
 
 let mark_type_path env path =
   try
     let decl = find_type path env in
-    mark_type_used env (Path.last path) decl
+    mark_type_used (Path.last path) decl
   with Not_found -> ()
 
 let ty_path t =
@@ -1351,32 +1338,35 @@ let ty_path t =
   | {desc=Tconstr(path, _, _)} -> path
   | _ -> assert false
 
-let lookup_constructor ?loc lid env =
-  match lookup_all_constructors ?loc lid env with
+let lookup_constructor ?loc ?(mark = true) lid env =
+  match lookup_all_constructors ?loc ~mark lid env with
     [] -> raise Not_found
   | (desc, use) :: _ ->
-      mark_type_path env (ty_path desc.cstr_res);
-      use ();
+      if mark then begin
+        mark_type_path env (ty_path desc.cstr_res);
+        use ()
+      end;
       desc
 
 let is_lident = function
     Lident _ -> true
   | _ -> false
 
-let lookup_all_constructors ?loc lid env =
+let lookup_all_constructors ?loc ?(mark = true) lid env =
   try
-    let cstrs = lookup_all_constructors ?loc lid env in
+    let cstrs = lookup_all_constructors ?loc ~mark lid env in
     let wrap_use desc use () =
-      mark_type_path env (ty_path desc.cstr_res);
-      use ()
+      if mark then begin
+        mark_type_path env (ty_path desc.cstr_res);
+        use ()
+      end
     in
     List.map (fun (cstr, use) -> (cstr, wrap_use cstr use)) cstrs
   with
     Not_found when is_lident lid -> []
 
 let mark_constructor usage env name desc =
-  if not (is_implicit_coercion env)
-  then match desc.cstr_tag with
+  match desc.cstr_tag with
   | Cstr_extension _ ->
       begin
         let ty_path = ty_path desc.cstr_res in
@@ -1388,36 +1378,46 @@ let mark_constructor usage env name desc =
       let ty_path = ty_path desc.cstr_res in
       let ty_decl = try find_type ty_path env with Not_found -> assert false in
       let ty_name = Path.last ty_path in
-      mark_constructor_used usage env ty_name ty_decl name
+      mark_constructor_used usage ty_name ty_decl name
 
-let lookup_label ?loc lid env =
-  match lookup_all_labels ?loc lid env with
+let lookup_label ?loc ?(mark = true) lid env =
+  match lookup_all_labels ?loc ~mark lid env with
     [] -> raise Not_found
   | (desc, use) :: _ ->
-      mark_type_path env (ty_path desc.lbl_res);
-      use ();
+      if mark then begin
+        mark_type_path env (ty_path desc.lbl_res);
+        use ()
+      end;
       desc
 
-let lookup_all_labels ?loc lid env =
+let lookup_all_labels ?loc ?(mark = true) lid env =
   try
-    let lbls = lookup_all_labels ?loc lid env in
+    let lbls = lookup_all_labels ?loc ~mark lid env in
     let wrap_use desc use () =
-      mark_type_path env (ty_path desc.lbl_res);
-      use ()
+      if mark then begin
+        mark_type_path env (ty_path desc.lbl_res);
+        use ()
+      end
     in
     List.map (fun (lbl, use) -> (lbl, wrap_use lbl use)) lbls
   with
     Not_found when is_lident lid -> []
 
-let lookup_class ?loc lid env =
-  let (_, desc) as r = lookup_class ?loc lid env in
+let lookup_module ~load ?loc ?(mark = true) lid env =
+  lookup_module ~load ?loc ~mark lid env
+
+let lookup_modtype ?loc ?(mark = true) lid env =
+  lookup_modtype ?loc ~mark lid env
+
+let lookup_class ?loc ?(mark = true) lid env =
+  let (_, desc) as r = lookup_class ?loc ~mark lid env in
   (* special support for Typeclass.unbound_class *)
-  if Path.name desc.cty_path = "" then ignore (lookup_type ?loc lid env)
-  else mark_type_path env desc.cty_path;
+  if Path.name desc.cty_path = "" then ignore (lookup_type ?loc ~mark lid env)
+  else if mark then mark_type_path env desc.cty_path;
   r
 
-let lookup_cltype ?loc lid env =
-  let (_, desc) as r = lookup_cltype ?loc lid env in
+let lookup_cltype ?loc ?(mark = true) lid env =
+  let (_, desc) as r = lookup_cltype ?loc ~mark lid env in
   if Path.name desc.clty_path = "" then ignore (lookup_type ?loc lid env)
   else mark_type_path env desc.clty_path;
   mark_type_path env desc.clty_path;
@@ -1523,52 +1523,6 @@ let find_shadowed_types path env =
   List.map fst
     (find_shadowed
        (fun env -> env.types) (fun comps -> comps.comp_types) path env)
-
-
-(* GADT instance tracking *)
-
-let add_gadt_instance_level lv env =
-  {env with
-   gadt_instances = (lv, ref TypeSet.empty) :: env.gadt_instances}
-
-let is_Tlink = function {desc = Tlink _} -> true | _ -> false
-
-let gadt_instance_level env t =
-  let rec find_instance = function
-      [] -> None
-    | (lv, r) :: rem ->
-        if TypeSet.exists is_Tlink !r then
-          (* Should we use set_typeset ? *)
-          r := TypeSet.fold (fun ty -> TypeSet.add (repr ty)) !r TypeSet.empty;
-        if TypeSet.mem t !r then Some lv else find_instance rem
-  in find_instance env.gadt_instances
-
-let add_gadt_instances env lv tl =
-  let r =
-    try List.assoc lv env.gadt_instances with Not_found -> assert false in
-  (* Format.eprintf "Added";
-  List.iter (fun ty -> Format.eprintf "@ %a" !Btype.print_raw ty) tl;
-  Format.eprintf "@."; *)
-  set_typeset r (List.fold_right TypeSet.add tl !r)
-
-(* Only use this after expand_head! *)
-let add_gadt_instance_chain env lv t =
-  let r =
-    try List.assoc lv env.gadt_instances with Not_found -> assert false in
-  let rec add_instance t =
-    let t = repr t in
-    if not (TypeSet.mem t !r) then begin
-      (* Format.eprintf "@ %a" !Btype.print_raw t; *)
-      set_typeset r (TypeSet.add t !r);
-      match t.desc with
-        Tconstr (p, _, memo) ->
-          may add_instance (find_expans Private p !memo)
-      | _ -> ()
-    end
-  in
-  (* Format.eprintf "Added chain"; *)
-  add_instance t
-  (* Format.eprintf "@." *)
 
 (* Expand manifest module type names at the top of the given module type *)
 
@@ -1971,14 +1925,6 @@ let add_local_type path info env =
   { env with
     local_constraints = PathMap.add path info env.local_constraints }
 
-let add_local_constraint path info elv env =
-  match info with
-    {type_manifest = Some _; type_newtype_level = Some (lv, _)} ->
-      (* elv is the expansion level, lv is the definition level *)
-      let info = {info with type_newtype_level = Some (lv, elv)} in
-      add_local_type path info env
-  | _ -> assert false
-
 
 (* Insertion of bindings by name *)
 
@@ -2019,12 +1965,36 @@ let rec add_signature sg env =
 
 (* Open a signature path *)
 
-let add_components slot root env0 comps =
+let add_components ?filter_modules slot root env0 comps =
   let add_l w comps env0 =
     TycompTbl.add_open slot w comps env0
   in
 
   let add w comps env0 = IdTbl.add_open slot w root comps env0 in
+
+  let skipped_modules = ref StringSet.empty in
+  let filter tbl env0_tbl =
+    match filter_modules with
+    | None -> tbl
+    | Some f ->
+      Tbl.fold (fun m x acc ->
+        if f m then
+          Tbl.add m x acc
+        else begin
+          assert
+            (match IdTbl.find_name m env0_tbl~mark:false with
+             | (_ : _ * _) -> false
+             | exception _ -> true);
+          skipped_modules := StringSet.add m !skipped_modules;
+          acc
+        end)
+        tbl Tbl.empty
+  in
+
+  let filter_and_add w comps env0 =
+    let comps = filter comps env0 in
+    add w comps env0
+  in
 
   let constrs =
     add_l (fun x -> `Constructor x) comps.comp_constrs env0.constrs
@@ -2049,15 +2019,15 @@ let add_components slot root env0 comps =
     add (fun x -> `Class_type x) comps.comp_cltypes env0.cltypes
   in
   let components =
-    add (fun x -> `Component x) comps.comp_components env0.components
+    filter_and_add (fun x -> `Component x) comps.comp_components env0.components
   in
 
   let modules =
-    add (fun x -> `Module x) comps.comp_modules env0.modules
+    filter_and_add (fun x -> `Module x) comps.comp_modules env0.modules
   in
 
   { env0 with
-    summary = Env_open(env0.summary, root);
+    summary = Env_open(env0.summary, !skipped_modules, root);
     constrs;
     labels;
     values;
@@ -2069,10 +2039,11 @@ let add_components slot root env0 comps =
     modules;
   }
 
-let open_signature slot root env0 =
+let open_signature ?filter_modules slot root env0 =
   match get_components (find_module_descr root env0) with
   | Functor_comps _ -> None
-  | Structure_comps comps -> Some (add_components slot root env0 comps)
+  | Structure_comps comps ->
+    Some (add_components ?filter_modules slot root env0 comps)
 
 
 (* Open a signature from a file *)
@@ -2082,9 +2053,28 @@ let open_pers_signature name env =
   | Some env -> env
   | None -> assert false (* a compilation unit cannot refer to a functor *)
 
+let open_signature_of_initially_opened_module root env =
+  let load_path = !Config.load_path in
+  let filter_modules m =
+    match Misc.find_in_path_uncap load_path (m ^ ".cmi") with
+    | (_ : string) -> false
+    | exception Not_found -> true
+  in
+  open_signature None root env ~filter_modules
+
+let open_signature_from_env_summary root env ~hidden_submodules =
+  let filter_modules =
+    if StringSet.is_empty hidden_submodules then
+      None
+    else
+      Some (fun m -> not (StringSet.mem m hidden_submodules))
+  in
+  open_signature None root env ?filter_modules
+
 let open_signature
     ?(used_slot = ref false)
-    ?(loc = Location.none) ?(toplevel = false) ovf root env =
+    ?(loc = Location.none) ?(toplevel = false)
+    ovf root env =
   if not toplevel && ovf = Asttypes.Fresh && not loc.Location.loc_ghost
      && (Warnings.is_active (Warnings.Unused_open "")
          || Warnings.is_active (Warnings.Open_shadow_identifier ("", ""))
@@ -2206,7 +2196,7 @@ let find_all proj1 proj2 f lid env acc =
         (fun name (p, data) acc -> f name p data acc)
         (proj1 env) acc
     | Some l ->
-      let p, desc = lookup_module_descr l env in
+      let p, desc = lookup_module_descr ~mark:true l env in
       begin match get_components desc with
           Structure_comps c ->
             Tbl.fold
@@ -2223,7 +2213,7 @@ let find_all_simple_list proj1 proj2 f lid env acc =
         (fun data acc -> f data acc)
         (proj1 env) acc
     | Some l ->
-      let (_p, desc) = lookup_module_descr l env in
+      let (_p, desc) = lookup_module_descr ~mark:true l env in
       begin match get_components desc with
           Structure_comps c ->
             Tbl.fold
@@ -2259,7 +2249,7 @@ let fold_modules f lid env acc =
         persistent_structures
         acc
     | Some l ->
-      let p, desc = lookup_module_descr l env in
+      let p, desc = lookup_module_descr ~mark:true l env in
       begin match get_components desc with
           Structure_comps c ->
             Tbl.fold

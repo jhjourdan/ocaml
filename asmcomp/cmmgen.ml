@@ -289,11 +289,14 @@ let mk_not dbg cmm =
   | Cop(Caddi, [Cop(Clsl, [c; Cconst_int 1], _); Cconst_int 1], dbg') -> begin
       match c with
       | Cop(Ccmpi cmp, [c1; c2], dbg'') ->
-          tag_int (Cop(Ccmpi (negate_comparison cmp), [c1; c2], dbg'')) dbg'
+          tag_int
+            (Cop(Ccmpi (negate_integer_comparison cmp), [c1; c2], dbg'')) dbg'
       | Cop(Ccmpa cmp, [c1; c2], dbg'') ->
-          tag_int (Cop(Ccmpa (negate_comparison cmp), [c1; c2], dbg'')) dbg'
+          tag_int
+            (Cop(Ccmpa (negate_integer_comparison cmp), [c1; c2], dbg'')) dbg'
       | Cop(Ccmpf cmp, [c1; c2], dbg'') ->
-          tag_int (Cop(Ccmpf (negate_comparison cmp), [c1; c2], dbg'')) dbg'
+          tag_int
+            (Cop(Ccmpf (negate_float_comparison cmp), [c1; c2], dbg'')) dbg'
       | _ ->
         (* 0 -> 3, 1 -> 1 *)
         Cop(Csubi, [Cconst_int 3; Cop(Clsl, [c; Cconst_int 1], dbg)], dbg)
@@ -608,7 +611,10 @@ let get_field env ptr n dbg =
 let set_field ptr n newval init dbg =
   Cop(Cstore (Word_val, init), [field_address ptr n dbg; newval], dbg)
 
-let non_profinfo_mask = (1 lsl (64 - Config.profinfo_width)) - 1
+let non_profinfo_mask =
+  if Config.profinfo 
+  then (1 lsl (64 - Config.profinfo_width)) - 1
+  else 0 (* [non_profinfo_mask] is unused in this case *)
 
 let get_header ptr dbg =
   (* We cannot deem this as [Immutable] due to the presence of [Obj.truncate]
@@ -870,13 +876,9 @@ let curry_function n =
 
 (* Comparisons *)
 
-let transl_comparison = function
-    Lambda.Ceq -> Ceq
-  | Lambda.Cneq -> Cne
-  | Lambda.Cge -> Cge
-  | Lambda.Cgt -> Cgt
-  | Lambda.Cle -> Cle
-  | Lambda.Clt -> Clt
+let transl_int_comparison cmp = cmp
+
+let transl_float_comparison cmp = cmp
 
 (* Translate structured constants *)
 
@@ -1079,7 +1081,7 @@ let bigarray_indexing unsafe elt_kind layout b args dbg =
   and elt_size =
     bigarray_elt_size elt_kind in
   (* [array_indexing] can simplify the given expressions *)
-  array_indexing ~typ:Int (log2 elt_size)
+  array_indexing ~typ:Addr (log2 elt_size)
                  (Cop(Cload (Word_int, Mutable),
                     [field_address b 1 dbg], dbg)) offset dbg
 
@@ -1104,12 +1106,13 @@ let bigarray_get unsafe elt_kind layout b args dbg =
       Pbigarray_complex32 | Pbigarray_complex64 ->
         let kind = bigarray_word_kind elt_kind in
         let sz = bigarray_elt_size elt_kind / 2 in
-        bind "addr" (bigarray_indexing unsafe elt_kind layout b args dbg)
-          (fun addr ->
-          box_complex dbg
-            (Cop(Cload (kind, Mutable), [addr], dbg))
-            (Cop(Cload (kind, Mutable),
-              [Cop(Cadda, [addr; Cconst_int sz], dbg)], dbg)))
+        bind "addr" (bigarray_indexing unsafe elt_kind layout b args dbg) (fun addr ->
+          bind "reval"
+            (Cop(Cload (kind, Mutable), [addr], dbg)) (fun reval ->
+              bind "imval"
+                (Cop(Cload (kind, Mutable),
+                     [Cop(Cadda, [addr; Cconst_int sz], dbg)], dbg)) (fun imval ->
+          box_complex dbg reval imval)))
     | _ ->
         Cop(Cload (bigarray_word_kind elt_kind, Mutable),
             [bigarray_indexing unsafe elt_kind layout b args dbg],
@@ -1365,7 +1368,7 @@ let simplif_primitive_32bits = function
   | Plsrbint Pint64 -> Pccall (default_prim "caml_int64_shift_right_unsigned")
   | Pasrbint Pint64 -> Pccall (default_prim "caml_int64_shift_right")
   | Pbintcomp(Pint64, Lambda.Ceq) -> Pccall (default_prim "caml_equal")
-  | Pbintcomp(Pint64, Lambda.Cneq) -> Pccall (default_prim "caml_notequal")
+  | Pbintcomp(Pint64, Lambda.Cne) -> Pccall (default_prim "caml_notequal")
   | Pbintcomp(Pint64, Lambda.Clt) -> Pccall (default_prim "caml_lessthan")
   | Pbintcomp(Pint64, Lambda.Cgt) -> Pccall (default_prim "caml_greaterthan")
   | Pbintcomp(Pint64, Lambda.Cle) -> Pccall (default_prim "caml_lessequal")
@@ -1375,7 +1378,8 @@ let simplif_primitive_32bits = function
   | Pbigarrayset(_unsafe, n, Pbigarray_int64, _layout) ->
       Pccall (default_prim ("caml_ba_set_" ^ string_of_int n))
   | Pstring_load_64(_) -> Pccall (default_prim "caml_string_get64")
-  | Pstring_set_64(_) -> Pccall (default_prim "caml_string_set64")
+  | Pbytes_load_64(_) -> Pccall (default_prim "caml_bytes_get64")
+  | Pbytes_set_64(_) -> Pccall (default_prim "caml_bytes_set64")
   | Pbigstring_load_64(_) -> Pccall (default_prim "caml_ba_uint8_get64")
   | Pbigstring_set_64(_) -> Pccall (default_prim "caml_ba_uint8_set64")
   | Pbbswap Pint64 -> Pccall (default_prim "caml_int64_bswap")
@@ -1648,8 +1652,10 @@ let rec is_unboxed_number ~strict env e =
             Boxed (Boxed_integer (Pint64, dbg), false)
         | Pbigarrayref(_, _, Pbigarray_native_int,_) ->
             Boxed (Boxed_integer (Pnativeint, dbg), false)
-        | Pstring_load_32(_) -> Boxed (Boxed_integer (Pint32, dbg), false)
-        | Pstring_load_64(_) -> Boxed (Boxed_integer (Pint64, dbg), false)
+        | Pstring_load_32(_) | Pbytes_load_32(_) ->
+            Boxed (Boxed_integer (Pint32, dbg), false)
+        | Pstring_load_64(_) | Pbytes_load_64(_) ->
+            Boxed (Boxed_integer (Pint64, dbg), false)
         | Pbigstring_load_32(_) -> Boxed (Boxed_integer (Pint32, dbg), false)
         | Pbigstring_load_64(_) -> Boxed (Boxed_integer (Pint64, dbg), false)
         | Praise _ -> No_result
@@ -2200,7 +2206,7 @@ and transl_prim_2 env p arg1 arg2 dbg =
       Cop(Cor, [asr_int (transl env arg1) (untag_int(transl env arg2) dbg) dbg;
                 Cconst_int 1], dbg)
   | Pintcomp cmp ->
-      tag_int(Cop(Ccmpi(transl_comparison cmp),
+      tag_int(Cop(Ccmpi(transl_int_comparison cmp),
                   [transl env arg1; transl env arg2], dbg)) dbg
   | Pisout ->
       transl_isout (transl env arg1) (transl env arg2) dbg
@@ -2222,7 +2228,7 @@ and transl_prim_2 env p arg1 arg2 dbg =
                     [transl_unbox_float dbg env arg1; transl_unbox_float dbg env arg2],
                     dbg))
   | Pfloatcomp cmp ->
-      tag_int(Cop(Ccmpf(transl_comparison cmp),
+      tag_int(Cop(Ccmpf(transl_float_comparison cmp),
                   [transl_unbox_float dbg env arg1; transl_unbox_float dbg env arg2],
                   dbg)) dbg
 
@@ -2241,7 +2247,7 @@ and transl_prim_2 env p arg1 arg2 dbg =
               Cop(Cload (Byte_unsigned, Mutable),
                 [add_int str idx dbg], dbg))))) dbg
 
-  | Pstring_load_16(unsafe) ->
+  | Pstring_load_16(unsafe) | Pbytes_load_16(unsafe) ->
      tag_int
        (bind "str" (transl env arg1) (fun str ->
         bind "index" (untag_int (transl env arg2) dbg) (fun idx ->
@@ -2261,7 +2267,7 @@ and transl_prim_2 env p arg1 arg2 dbg =
                                           (Cconst_int 1) dbg) idx
                       (unaligned_load_16 ba_data idx dbg))))) dbg
 
-  | Pstring_load_32(unsafe) ->
+  | Pstring_load_32(unsafe) | Pbytes_load_32(unsafe) ->
      box_int dbg Pint32
        (bind "str" (transl env arg1) (fun str ->
         bind "index" (untag_int (transl env arg2) dbg) (fun idx ->
@@ -2281,7 +2287,7 @@ and transl_prim_2 env p arg1 arg2 dbg =
                                           (Cconst_int 3) dbg) idx
                       (unaligned_load_32 ba_data idx dbg)))))
 
-  | Pstring_load_64(unsafe) ->
+  | Pstring_load_64(unsafe) | Pbytes_load_64(unsafe) ->
      box_int dbg Pint64
        (bind "str" (transl env arg1) (fun str ->
         bind "index" (untag_int (transl env arg2) dbg) (fun idx ->
@@ -2357,18 +2363,6 @@ and transl_prim_2 env p arg1 arg2 dbg =
                 unboxed_float_array_ref arr idx dbg))))
       end
 
-  (* Operations on bitvects *)
-  | Pbittest ->
-      bind "index" (untag_int(transl env arg2) dbg) (fun idx ->
-        tag_int(
-          Cop(Cand, [Cop(Clsr, [Cop(Cload (Byte_unsigned, Mutable),
-                                    [add_int (transl env arg1)
-                                      (Cop(Clsr, [idx; Cconst_int 3], dbg))
-                                      dbg],
-                                    dbg);
-                                Cop(Cand, [idx; Cconst_int 7], dbg)], dbg);
-                     Cconst_int 1], dbg)) dbg)
-
   (* Boxed integers *)
   | Paddbint bi ->
       box_int dbg bi (Cop(Caddi,
@@ -2417,7 +2411,7 @@ and transl_prim_2 env p arg1 arg2 dbg =
                      [transl_unbox_int dbg env bi arg1;
                       untag_int(transl env arg2) dbg], dbg))
   | Pbintcomp(bi, cmp) ->
-      tag_int (Cop(Ccmpi(transl_comparison cmp),
+      tag_int (Cop(Ccmpi(transl_int_comparison cmp),
                      [transl_unbox_int dbg env bi arg1;
                       transl_unbox_int dbg env bi arg2], dbg)) dbg
   | prim ->
@@ -2524,7 +2518,7 @@ and transl_prim_3 env p arg1 arg2 arg3 dbg =
                       float_array_set arr idx newval dbg))))
       end)
 
-  | Pstring_set_16(unsafe) ->
+  | Pbytes_set_16(unsafe) ->
      return_unit
        (bind "str" (transl env arg1) (fun str ->
         bind "index" (untag_int (transl env arg2) dbg) (fun idx ->
@@ -2547,7 +2541,7 @@ and transl_prim_3 env p arg1 arg2 arg3 dbg =
                                           dbg)
                       idx (unaligned_set_16 ba_data idx newval dbg))))))
 
-  | Pstring_set_32(unsafe) ->
+  | Pbytes_set_32(unsafe) ->
      return_unit
        (bind "str" (transl env arg1) (fun str ->
         bind "index" (untag_int (transl env arg2) dbg) (fun idx ->
@@ -2570,7 +2564,7 @@ and transl_prim_3 env p arg1 arg2 arg3 dbg =
                                           dbg)
                       idx (unaligned_set_32 ba_data idx newval dbg))))))
 
-  | Pstring_set_64(unsafe) ->
+  | Pbytes_set_64(unsafe) ->
      return_unit
        (bind "str" (transl env arg1) (fun str ->
         bind "index" (untag_int (transl env arg2) dbg) (fun idx ->
@@ -2827,10 +2821,16 @@ let transl_function f =
       Afl_instrument.instrument_function (transl env body)
     else
       transl env body in
+  let fun_codegen_options =
+    if !Clflags.optimize_for_speed then
+      []
+    else
+      [ Reduce_code_size ]
+  in
   Cfunction {fun_name = f.label;
              fun_args = List.map (fun id -> (id, typ_val)) f.params;
              fun_body = cmm_body;
-             fun_fast = !Clflags.optimize_for_speed;
+             fun_codegen_options;
              fun_dbg  = f.dbg}
 
 (* Translate all function definitions *)
@@ -3045,18 +3045,24 @@ let emit_gc_roots_table ~symbols cont =
 (* Build preallocated blocks (used for Flambda [Initialize_symbol]
    constructs, and Clambda global module) *)
 
-let preallocate_block cont { Clambda.symbol; exported; tag; size } =
+let preallocate_block cont { Clambda.symbol; exported; tag; fields } =
   let space =
     (* These words will be registered as roots and as such must contain
        valid values, in case we are in no-naked-pointers mode.  Likewise
        the block header must be black, below (see [caml_darken]), since
        the overall record may be referenced. *)
-    Array.to_list
-      (Array.init size (fun _index ->
-        Cint (Nativeint.of_int 1 (* Val_unit *))))
+    List.map (fun field ->
+        match field with
+        | None ->
+            Cint (Nativeint.of_int 1 (* Val_unit *))
+        | Some (Uconst_field_int n) ->
+            cint_const n
+        | Some (Uconst_field_ref label) ->
+            Csymbol_address label)
+      fields
   in
   let data =
-    Cint(black_block_header tag size) ::
+    Cint(black_block_header tag (List.length fields)) ::
     if exported then
       Cglobal_symbol symbol ::
       Cdefine_symbol symbol :: space
@@ -3083,7 +3089,16 @@ let compunit (ulam, preallocated_blocks, constants) =
       transl empty_env ulam in
   let c1 = [Cfunction {fun_name = Compilenv.make_symbol (Some "entry");
                        fun_args = [];
-                       fun_body = init_code; fun_fast = false;
+                       fun_body = init_code;
+                       (* This function is often large and run only once.
+                          Compilation time matter more than runtime.
+                          See MPR#7630 *)
+                       fun_codegen_options =
+                         if Config.flambda then [
+                           Reduce_code_size;
+                           No_CSE;
+                         ]
+                         else [ Reduce_code_size ];
                        fun_dbg  = Debuginfo.none }] in
   let c2 = emit_constants c1 constants in
   let c3 = transl_all_functions_and_emit_all_constants c2 in
@@ -3224,7 +3239,7 @@ let send_function arity =
    {fun_name;
     fun_args = fun_args;
     fun_body = body;
-    fun_fast = true;
+    fun_codegen_options = [];
     fun_dbg  = Debuginfo.none }
 
 let apply_function arity =
@@ -3235,7 +3250,7 @@ let apply_function arity =
    {fun_name;
     fun_args = List.map (fun id -> (id, typ_val)) all_args;
     fun_body = body;
-    fun_fast = true;
+    fun_codegen_options = [];
     fun_dbg  = Debuginfo.none;
    }
 
@@ -3260,7 +3275,7 @@ let tuplify_function arity =
       Cop(Capply typ_val,
           get_field env (Cvar clos) 2 dbg :: access_components 0 @ [Cvar clos],
           dbg);
-    fun_fast = true;
+    fun_codegen_options = [];
     fun_dbg  = Debuginfo.none;
    }
 
@@ -3323,7 +3338,7 @@ let final_curry_function arity =
                "_" ^ string_of_int (arity-1);
     fun_args = [last_arg, typ_val; last_clos, typ_val];
     fun_body = curry_fun [] last_clos (arity-1);
-    fun_fast = true;
+    fun_codegen_options = [];
     fun_dbg  = Debuginfo.none }
 
 let rec intermediate_curry_functions arity num =
@@ -3353,7 +3368,7 @@ let rec intermediate_curry_functions arity num =
                  Cconst_symbol(name1 ^ "_" ^ string_of_int (num+1));
                  int_const 1; Cvar arg; Cvar clos],
                 dbg);
-      fun_fast = true;
+      fun_codegen_options = [];
       fun_dbg  = Debuginfo.none }
     ::
       (if arity <= max_arity_optimized && arity - num > 2 then
@@ -3381,7 +3396,7 @@ let rec intermediate_curry_functions arity num =
                fun_args = direct_args @ [clos, typ_val];
                fun_body = iter (num+1)
                   (List.map (fun (arg,_) -> Cvar arg) direct_args) clos;
-               fun_fast = true;
+               fun_codegen_options = [];
                fun_dbg = Debuginfo.none }
           in
           cf :: intermediate_curry_functions arity (num+1)
@@ -3444,7 +3459,7 @@ let entry_point namelist =
   Cfunction {fun_name = "caml_program";
              fun_args = [];
              fun_body = body;
-             fun_fast = false;
+             fun_codegen_options = [Reduce_code_size];
              fun_dbg  = Debuginfo.none }
 
 (* Generate the table of globals *)

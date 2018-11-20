@@ -75,6 +75,8 @@ CAMLexport struct caml_custom_table
 /* Table of custom blocks in the minor heap that contain finalizers
    or GC speed parameters. */
 
+double caml_extra_heap_resources_minor = 0;
+
 /* [sz] and [rsv] are numbers of entries */
 static void alloc_generic_table (struct generic_table *tbl, asize_t sz,
                                  asize_t rsv, asize_t element_size)
@@ -417,6 +419,7 @@ void caml_empty_minor_heap (void)
     clear_table ((struct generic_table *) &caml_ref_table);
     clear_table ((struct generic_table *) &caml_ephe_ref_table);
     clear_table ((struct generic_table *) &caml_custom_table);
+    caml_extra_heap_resources_minor = 0;
     caml_gc_message (0x02, ">");
     caml_final_empty_young ();
     CAML_INSTR_TIME (tmr, "minor/finalized");

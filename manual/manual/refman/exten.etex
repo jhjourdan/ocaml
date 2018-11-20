@@ -199,7 +199,19 @@ module expressions are then evaluated, and the initial values
 for the safe modules are replaced by the values thus computed.  If a
 function component of a safe module is applied during this computation
 (which corresponds to an ill-founded recursive definition), the
-"Undefined_recursive_module" exception is raised.
+"Undefined_recursive_module" exception is raised at runtime:
+
+\begin{caml_example}{verbatim}
+module rec M: sig val f: unit -> int end = struct let f () = N.x end
+and N:sig val x: int end = struct let x = M.f () end
+\end{caml_example}
+
+If there are no safe modules along a dependency cycle, an error is raised
+
+\begin{caml_example}{verbatim}[error]
+module rec M: sig val x: int end = struct let x = N.y end
+and N:sig val x: int val y:int end = struct let x = M.x let y = 0 end
+\end{caml_example}
 
 Note that, in the @specification@ case, the @module-type@s must be
 parenthesized if they use the @'with' mod-constraint@ construct.
@@ -448,22 +460,22 @@ suspend the evaluation of @expr@ as a regular abstraction would.  The
 syntax has been chosen to fit nicely in the context of function
 declarations, where it is generally used. It is possible to freely mix
 regular function parameters with pseudo type parameters, as in:
-\begin{verbatim}
-        let f = fun (type t) (foo : t list) -> ...
-\end{verbatim}
+\begin{caml_example*}{verbatim}
+        let f = fun (type t) (foo : t list) -> assert false[@ellipsis]
+\end{caml_example*}
 and even use the alternative syntax for declaring functions:
-\begin{verbatim}
-        let f (type t) (foo : t list) = ...
-\end{verbatim}
+\begin{caml_example*}{verbatim}
+        let f (type t) (foo : t list) = assert false[@ellipsis]
+\end{caml_example*}
 If several locally abstract types need to be introduced, it is possible to use
 the syntax
 @"fun" '(' "type" typeconstr-name_1 \ldots typeconstr-name_n ')' "->" expr@
 as syntactic sugar for @"fun" '(' "type" typeconstr-name_1 ')' "->" \ldots "->"
 "fun" '(' "type" typeconstr-name_n ')' "->" expr@. For instance,
-\begin{verbatim}
-        let f = fun (type t u v) -> fun (foo : (t * u * v) list) -> ...
-        let f' (type t u v) (foo : (t * u * v) list) = ...
-\end{verbatim}
+\begin{caml_example*}{verbatim}
+        let f = fun (type t u v) -> fun (foo : (t * u * v) list) -> assert false[@ellipsis]
+        let f' (type t u v) (foo : (t * u * v) list) = assert false[@ellipsis]
+\end{caml_example}
 
 This construction is useful because the type constructors it introduces
 can be used in places where a type variable is not allowed. For
@@ -506,15 +518,15 @@ The @"(type" typeconstr-name")"@ syntax construction by itself does not make
 polymorphic the type variable it introduces, but it can be combined
 with explicit polymorphic annotations where needed.
 The above rule is provided as syntactic sugar to make this easier:
-\begin{verbatim}
-        let rec f : type t1 t2. t1 * t2 list -> t1 = ...
-\end{verbatim}
+\begin{caml_example*}{verbatim}
+        let rec f : type t1 t2. t1 * t2 list -> t1 = assert false[@ellipsis]
+\end{caml_example*}
 \noindent
 is automatically expanded into
-\begin{verbatim}
+\begin{caml_example*}{verbatim}
         let rec f : 't1 't2. 't1 * 't2 list -> 't1 =
-          fun (type t1) (type t2) -> (... : t1 * t2 list -> t1)
-\end{verbatim}
+          fun (type t1) (type t2) -> ( assert false[@ellipsis] : t1 * t2 list -> t1)
+\end{caml_example*}
 This syntax can be very useful when defining recursive functions involving
 GADTs, see the section~\ref{s:gadts} for a more detailed explanation.
 
@@ -608,16 +620,16 @@ select at run-time among several implementations of a signature.
 Each implementation is a structure that we can encapsulate as a
 first-class module, then store in a data structure such as a hash
 table:
-\begin{verbatim}
-        module type DEVICE = sig ... end
+\begin{caml_example*}{verbatim}
+        module type DEVICE = sig [@@@ellipsis] end
         let devices : (string, (module DEVICE)) Hashtbl.t = Hashtbl.create 17
 
-        module SVG = struct ... end
+        module SVG = struct [@@@ellipsis] end
         let _ = Hashtbl.add devices "SVG" (module SVG : DEVICE)
 
-        module PDF = struct ... end
+        module PDF = struct [@@@ellipsis] end
         let _ = Hashtbl.add devices "PDF" (module PDF: DEVICE)
-\end{verbatim}
+\end{caml_example*}
 We can then select one implementation based on command-line
 arguments, for instance:
 \begin{verbatim}
@@ -630,7 +642,7 @@ Alternatively, the selection can be performed within a function:
 \begin{verbatim}
         let draw_using_device device_name picture =
           let module Device =
-            (val (Hashtbl.find_devices device_name) : DEVICE)
+            (val (Hashtbl.find devices device_name) : DEVICE)
           in
             Device.draw picture
 \end{verbatim}
@@ -935,13 +947,13 @@ physically @'A'@ and @'B'@ as submodules, and with no dependencies on
 their respective compilation units.
 Here is a concrete example of a possible alternative approach:
 \begin{enumerate}
-\item Rename the files containing @'A'@ and @'B'@ to @'Mylib_A'@ and
-  @'Mylib_B'@.
+\item Rename the files containing @'A'@ and @'B'@ to @'Mylib__A'@ and
+  @'Mylib__B'@.
 \item Create a packing interface @'Mylib.ml'@, containing the
   following lines.
 \begin{verbatim}
-    module A = Mylib_A
-    module B = Mylib_B
+    module A = Mylib__A
+    module B = Mylib__B
 \end{verbatim}
 \item Compile @'Mylib.ml'@ using @'-no-alias-deps'@, and the other
   files using @'-no-alias-deps'@ and @'-open' 'Mylib'@ (the last one is
@@ -949,7 +961,7 @@ Here is a concrete example of a possible alternative approach:
   file).
 \begin{verbatim}
     ocamlc -c -no-alias-deps Mylib.ml
-    ocamlc -c -no-alias-deps -open Mylib Mylib_*.mli Mylib_*.ml
+    ocamlc -c -no-alias-deps -open Mylib Mylib__*.mli Mylib__*.ml
 \end{verbatim}
 \item Finally, create a library containing all the compilation units,
   and export all the compiled interfaces.
@@ -960,11 +972,20 @@ Here is a concrete example of a possible alternative approach:
 This approach lets you access @'A'@ and @'B'@ directly inside the
 library, and as @'Mylib.A'@ and @'Mylib.B'@ from outside.
 It also has the advantage that @'Mylib'@ is no longer monolithic: if
-you use @'Mylib.A'@, only @'Mylib_A'@ will be linked in, not
-@'Mylib_B'@.
+you use @'Mylib.A'@, only @'Mylib__A'@ will be linked in, not
+@'Mylib__B'@.
 %Note that in the above @'Mylib.cmo'@ is actually empty, and one could
 %name the interface @'Mylib.mli'@, but this would require that all
 %clients are compiled with the @'-no-alias-deps'@ flag.
+
+Note the use of double underscores in @'Mylib__A'@ and
+@'Mylib__B'@. These were chosen on purpose; the compiler uses the
+following heuristic when printing paths: given a path @'Lib__fooBar'@,
+if @'Lib.FooBar'@ exists and is an alias for @'Lib__fooBar'@, then the
+compiler will always display @'Lib.FooBar'@ instead of
+@'Lib__fooBar'@. This way the long @'Mylib__'@ names stay hidden and
+all the user sees is the nicer dot names. This is how the OCaml
+standard library is compiled.
 
 \section{Overriding in open statements}\label{s:explicit-overriding-open}
 \ikwd{open.\@\texttt{open\char33}}
@@ -1145,7 +1166,7 @@ exhaustive (the "Add" case cannot happen).
 \end{verbatim}
 
 
-\paragraph{Refutation cases and redundancy} (Introduced in OCaml 4.03)
+\paragraph{Refutation cases} (Introduced in OCaml 4.03)
 
 Usually, the exhaustiveness check only tries to check whether the
 cases omitted from the pattern matching are typable or not.
@@ -1163,7 +1184,7 @@ Wild cards in the generated patterns are handled in a special way: if
 their type is a variant type with only GADT constructors, then the
 pattern is split into the different constructors, in order to check whether
 any of them is possible (this splitting is not done for arguments of these
-constructors, to avoid non-termination.) We also split tuples and
+constructors, to avoid non-termination). We also split tuples and
 variant types with only one case, since they may contain GADTs inside.
 For instance, the following code is deemed exhaustive:
 
@@ -1178,7 +1199,8 @@ For instance, the following code is deemed exhaustive:
 \end{verbatim}
 
 Namely, the inferred remaining case is "Some _", which is split into
-"Some (Int, _)" and "Some (Bool, _)", which are both untypable.
+"Some (Int, _)" and "Some (Bool, _)", which are both untypable because
+"deep" expects a non-existing "char t" as the first element of the tuple.
 Note that the refutation case could be omitted here, because it is
 automatically added when there is only one case in the pattern
 matching.
@@ -1767,7 +1789,7 @@ When this form is used together with the infix syntax for attributes,
 the attributes are considered to apply to the payload:
 
 \begin{verbatim}
-fun%foo[@bar] x -> x + 1 === [%foo (fun x -> x + 1)[@foo ] ];
+fun%foo[@bar] x -> x + 1 === [%foo (fun x -> x + 1)[@bar ] ];
 \end{verbatim}
 
 \subsection{Built-in extension nodes}
@@ -2354,3 +2376,18 @@ let dict =
 dict.Dict.%{"one"};;
 let open Dict in dict.%{"two"};;
 \end{caml_example}
+
+\section{Empty variant types\label{s:empty-variants} }
+(Introduced in 4.07.0)
+
+\begin{syntax}
+type-representation:
+          ...
+        | '=' '|'
+\end{syntax}
+This extension allows user to define empty variants.
+Empty variant type can be eliminated by refutation case of pattern matching.
+\begin{caml_example*}{verbatim}
+type t = |
+let f (x: t) = match x with _ -> .
+\end{caml_example*}

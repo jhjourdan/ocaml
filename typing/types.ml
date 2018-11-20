@@ -22,6 +22,7 @@ open Asttypes
 type type_expr =
   { mutable desc: type_desc;
     mutable level: int;
+    mutable scope: int option;
     id: int }
 
 and type_desc =
@@ -330,6 +331,10 @@ let equal_tag t1 t2 =
   | Cstr_extension (path1, b1), Cstr_extension (path2, b2) -> 
       Path.same path1 path2 && b1 = b2
   | (Cstr_constant _|Cstr_block _|Cstr_unboxed|Cstr_extension _), _ -> false
+
+let may_equal_constr c1 c2 = match c1.cstr_tag,c2.cstr_tag with
+| Cstr_extension _,Cstr_extension _ -> c1.cstr_arity = c2.cstr_arity
+| tag1,tag2 -> equal_tag tag1 tag2
 
 type label_description =
   { lbl_name: string;                   (* Short name *)
