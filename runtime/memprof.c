@@ -347,7 +347,7 @@ static void run_callbacks(uintnat cur)
         sample_info);
     check_exn(res);
     if (res == Val_long(0)) {
-      mark_deleted(t); /* Allocation callback returned None, discard this entry */
+      mark_deleted(t); /* Callback returned None, discard this entry */
       CAMLreturn0;
     } else {
       CAMLassert(Is_block(res) && Tag_val(res) == 0 && Wosize_val(res) == 1);
@@ -361,7 +361,7 @@ static void run_callbacks(uintnat cur)
     res = caml_callback_exn(callback_promote, t->user_data);
     check_exn(res);
     if (res == Val_long(0)) {
-      mark_deleted(t); /* Promotion callback returned None, discard this entry */
+      mark_deleted(t); /* Callback returned None, discard this entry */
       CAMLreturn0;
     } else {
       CAMLassert(Is_block(res) && Tag_val(res) == 0 && Wosize_val(res) == 1);
