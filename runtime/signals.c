@@ -306,7 +306,8 @@ value caml_do_pending_actions_exn(void)
   if (Is_exception_result(exn)) goto exception;
 
   // Call memprof callbacks
-  caml_memprof_handle_postponed();
+  exn = caml_memprof_handle_postponed_exn();
+  if (Is_exception_result(exn)) goto exception;
 
   // Call finalisers
   exn = caml_final_do_calls_exn();
