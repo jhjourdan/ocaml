@@ -130,95 +130,6 @@ static uintnat mt_generate_binom(uintnat len)
   return res;
 }
 
-/**** Interface with the OCaml code. ****/
-
-static struct {
-  struct tracked* entries;
-  /* The allocated capacity of the entries array */
-  uintnat alloc_len;
-  /* The number of active entries. (len <= alloc_len) */
-  uintnat len;
-  /* Before this position, the [block] and [user_data] fields point to
-     the major heap (young <= len) */
-  uintnat young;
-  /* There are no pending callbacks before this position (callback <= len) */
-  uintnat callback;
-  /* There are no blocks to be deleted before this position */
-  uintnat delete;
-} tracked;
-
-CAMLprim value caml_memprof_set(value lv, value szv,
-                                value cb_alloc_minor, value cb_alloc_major,
-                                value cb_promote,
-                                value cb_dealloc_minor, value cb_dealloc_major)
-{
-  CAMLparam5(lv, szv, cb_alloc_minor, cb_alloc_major, cb_promote);
-  CAMLxparam2(cb_dealloc_minor, cb_dealloc_major);
-  double l = Double_val(lv);
-  intnat sz = Long_val(szv);
-  uintnat i;
-
-  if (sz < 0 || !(l >= 0.) || l > 1.) /* Checks that [l] is not NAN. */
-    caml_invalid_argument("caml_memprof_set");
-
-  /* This call to [caml_memprof_set] will discard all the previously
-     tracked blocks. We try one last time to call the postponed
-     callbacks. */
-  caml_raise_if_exception(caml_memprof_handle_postponed_exn());
-
-  /* Discard the tracked blocks. */
-  for(i = 0; i < tracked.len; i++)
-    if(tracked.entries[i].idx_ptr != NULL)
-      *tracked.entries[i].idx_ptr = Invalid_index;
-  tracked.len = 0;
-  tracked.callback = tracked.young = tracked.delete = 0;
-  caml_stat_free(tracked.entries);
-  tracked.entries = NULL;
-  tracked.alloc_len = 0;
-
-  if (!init) {
-    init = 1;
-
-    mt_index = 624;
-    mt_state[0] = 42;
-    for(i = 1; i < 624; i++)
-      mt_state[i] = 0x6c078965 * (mt_state[i-1] ^ (mt_state[i-1] >> 30)) + i;
-
-    caml_register_generational_global_root(&callback_alloc_minor);
-    caml_register_generational_global_root(&callback_alloc_major);
-    caml_register_generational_global_root(&callback_promote);
-    caml_register_generational_global_root(&callback_dealloc_minor);
-    caml_register_generational_global_root(&callback_dealloc_major);
-  }
-
-  lambda = l;
-  if (l > 0) {
-    one_log1m_lambda = l == 1 ? 0 : 1/caml_log1p(-l);
-    next_mt_generate_binom = mt_generate_geom();
-  }
-
-  caml_memprof_renew_minor_sample();
-
-  callstack_size = sz;
-
-  caml_modify_generational_global_root(&callback_alloc_minor, cb_alloc_minor);
-  caml_modify_generational_global_root(&callback_alloc_major, cb_alloc_major);
-  caml_modify_generational_global_root(&callback_promote, cb_promote);
-  caml_modify_generational_global_root(&callback_dealloc_minor,
-                                       cb_dealloc_minor);
-  caml_modify_generational_global_root(&callback_dealloc_major,
-                                       cb_dealloc_major);
-
-  CAMLreturn(Val_unit);
-}
-
-CAMLprim value caml_memprof_set_byt(value* argv, int argn)
-{
-  CAMLassert(argn == 7);
-  return caml_memprof_set(argv[0], argv[1], argv[2], argv[3],
-                          argv[4], argv[5], argv[6]);
-}
-
 /**** Capturing the call stack *****/
 
 /* This function is called for postponed blocks, so it guarantees
@@ -299,6 +210,21 @@ struct tracked {
   /* Whether a callback is currently running for this entry. */
   unsigned int callback_running : 1;
 };
+
+static struct {
+  struct tracked* entries;
+  /* The allocated capacity of the entries array */
+  uintnat alloc_len;
+  /* The number of active entries. (len <= alloc_len) */
+  uintnat len;
+  /* Before this position, the [block] and [user_data] fields point to
+     the major heap (young <= len) */
+  uintnat young;
+  /* There are no pending callbacks before this position (callback <= len) */
+  uintnat callback;
+  /* There are no blocks to be deleted before this position */
+  uintnat delete;
+} tracked;
 
 /* Reallocate the [tracked] array if it is either too small or too large.
    Leaves enough space for at least one free entry.
@@ -561,7 +487,6 @@ void caml_memprof_invert_tracked(void)
     caml_invert_root(tracked.entries[i].block, &tracked.entries[i].block);
 }
 
-
 /**** Sampling procedures ****/
 
 void caml_memprof_track_alloc_shr(value block)
@@ -744,4 +669,78 @@ void caml_memprof_track_interned(header_t* block, header_t* blockend) {
     p = next_p;
   }
   caml_memprof_check_action_pending();
+}
+
+/**** Interface with the OCaml code. ****/
+
+CAMLprim value caml_memprof_set(value lv, value szv,
+                                value cb_alloc_minor, value cb_alloc_major,
+                                value cb_promote,
+                                value cb_dealloc_minor, value cb_dealloc_major)
+{
+  CAMLparam5(lv, szv, cb_alloc_minor, cb_alloc_major, cb_promote);
+  CAMLxparam2(cb_dealloc_minor, cb_dealloc_major);
+  double l = Double_val(lv);
+  intnat sz = Long_val(szv);
+  uintnat i;
+
+  if (sz < 0 || !(l >= 0.) || l > 1.) /* Checks that [l] is not NAN. */
+    caml_invalid_argument("caml_memprof_set");
+
+  /* This call to [caml_memprof_set] will discard all the previously
+     tracked blocks. We try one last time to call the postponed
+     callbacks. */
+  caml_raise_if_exception(caml_memprof_handle_postponed_exn());
+
+  /* Discard the tracked blocks. */
+  for(i = 0; i < tracked.len; i++)
+    if(tracked.entries[i].idx_ptr != NULL)
+      *tracked.entries[i].idx_ptr = Invalid_index;
+  tracked.len = 0;
+  tracked.callback = tracked.young = tracked.delete = 0;
+  caml_stat_free(tracked.entries);
+  tracked.entries = NULL;
+  tracked.alloc_len = 0;
+
+  if (!init) {
+    init = 1;
+
+    mt_index = 624;
+    mt_state[0] = 42;
+    for(i = 1; i < 624; i++)
+      mt_state[i] = 0x6c078965 * (mt_state[i-1] ^ (mt_state[i-1] >> 30)) + i;
+
+    caml_register_generational_global_root(&callback_alloc_minor);
+    caml_register_generational_global_root(&callback_alloc_major);
+    caml_register_generational_global_root(&callback_promote);
+    caml_register_generational_global_root(&callback_dealloc_minor);
+    caml_register_generational_global_root(&callback_dealloc_major);
+  }
+
+  lambda = l;
+  if (l > 0) {
+    one_log1m_lambda = l == 1 ? 0 : 1/caml_log1p(-l);
+    next_mt_generate_binom = mt_generate_geom();
+  }
+
+  caml_memprof_renew_minor_sample();
+
+  callstack_size = sz;
+
+  caml_modify_generational_global_root(&callback_alloc_minor, cb_alloc_minor);
+  caml_modify_generational_global_root(&callback_alloc_major, cb_alloc_major);
+  caml_modify_generational_global_root(&callback_promote, cb_promote);
+  caml_modify_generational_global_root(&callback_dealloc_minor,
+                                       cb_dealloc_minor);
+  caml_modify_generational_global_root(&callback_dealloc_major,
+                                       cb_dealloc_major);
+
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value caml_memprof_set_byt(value* argv, int argn)
+{
+  CAMLassert(argn == 7);
+  return caml_memprof_set(argv[0], argv[1], argv[2], argv[3],
+                          argv[4], argv[5], argv[6]);
 }
