@@ -32,8 +32,6 @@ environment:
     - PORT: mingw32
     - PORT: msvc64
 
-matrix:
-  fast_finish: true
 
 cache:
   - C:\cygwin64\var\cache\setup
